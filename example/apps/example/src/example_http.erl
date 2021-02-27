@@ -79,7 +79,7 @@ serve_request(_Method, _Req, _RawPath, DocRoot, [], _Args) ->
         Size ->
             {ok, [{<<"Content-Length">>, Size}], {file, Index}}
     end;
-serve_request('PUT', Req, Path, DocRoot, [M, F], Args) ->
+serve_request('GET', Req, Path, DocRoot, [<<"create">>, <<"user">>], Args) ->
     %% Otherwise, serve up the file from the document root, check to see if there is a
     %% template that should be served
     Host = elli_request:get_header(<<"Host">>, Req),

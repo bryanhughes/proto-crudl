@@ -1,0 +1,31 @@
+{"1.2.0",
+[{<<"backoff">>,{pkg,<<"backoff">>,<<"1.1.6">>},1},
+ {<<"elli">>,
+  {git,"https://github.com/elli-lib/elli.git",
+       {ref,"968afee385f46c053fd46858713261db7dc03af4"}},
+  0},
+ {<<"elli_cookie">>,{pkg,<<"elli_cookie">>,<<"0.3.0">>},0},
+ {<<"elli_date">>,{pkg,<<"elli_date">>,<<"1.1.1">>},0},
+ {<<"mimerl">>,{pkg,<<"mimerl">>,<<"1.2.0">>},0},
+ {<<"pg_types">>,{pkg,<<"pg_types">>,<<"0.4.0">>},1},
+ {<<"pgo">>,
+  {git,"https://github.com/bryanhughes/pgo.git",
+       {ref,"da48a9b769d4efbef866b7a0902328880c54a540"}},
+  0},
+ {<<"telemetry">>,{pkg,<<"telemetry">>,<<"0.4.2">>},1}]}.
+[
+{pkg_hash,[
+ {<<"backoff">>, <<"83B72ED2108BA1EE8F7D1C22E0B4A00CFE3593A67DBC792799E8CCE9F42F796B">>},
+ {<<"elli_cookie">>, <<"E54957A35C8D8EEE2C8F8B15F0E0C69F8C5C99B0EF06EE6FBA3402E401C94BB3">>},
+ {<<"elli_date">>, <<"FA49D480F29698DCCFBAFD709061AD96011E06C3F571CE82FA5B38259AA2B588">>},
+ {<<"mimerl">>, <<"67E2D3F571088D5CFD3E550C383094B47159F3EEE8FFA08E64106CDF5E981BE3">>},
+ {<<"pg_types">>, <<"3CE365C92903C5BB59C0D56382D842C8C610C1B6F165E20C4B652C96FA7E9C14">>},
+ {<<"telemetry">>, <<"2808C992455E08D6177322F14D3BDB6B625FBCFD233A73505870D8738A2F4599">>}]},
+{pkg_hash_ext,[
+ {<<"backoff">>, <<"CF0CFFF8995FB20562F822E5CC47D8CCF664C5ECDC26A684CBE85C225F9D7C39">>},
+ {<<"elli_cookie">>, <<"EE94566E726CB2DC6544CE8F667E30ED724A93C5FD7B395EEF0D0BC44559C764">>},
+ {<<"elli_date">>, <<"A78A1EB846395E3E2D96CE5924ED3D4147E792EA72E167A649DE0FD4FB37A662">>},
+ {<<"mimerl">>, <<"F278585650AA581986264638EBF698F8BB19DF297F66AD91B18910DFC6E19323">>},
+ {<<"pg_types">>, <<"B02EFA785CAECECF9702C681C80A9CA12A39F9161A846CE17B01FB20AEEED7EB">>},
+ {<<"telemetry">>, <<"2D1419BD9DDA6A206D7B5852179511722E2B18812310D304620C7BD92A13FCEF">>}]}
+].

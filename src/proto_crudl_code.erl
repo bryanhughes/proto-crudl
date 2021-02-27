@@ -84,7 +84,7 @@ generate_sources(Provider, SourcePath, Suffix, UseRecords, UsePackage, UseGpb, D
         _ ->
             io:format("~p (using_maps)~n", [FullPath]),
             generate_exports(use_maps, FullPath, Table),
-            erl_crutl_maps:generate_functions(Provider, FullPath, Table)
+            proto_crutl_maps:generate_functions(Provider, FullPath, Table)
     end,
 
     % Generate enum helpers

@@ -23,13 +23,14 @@ then
       fi
     done
 
-    echo "Switching to $DIR/.. and running rebar3"
+    printf "Switching to %s/.. and running rebar3\n" "$DIR"
     cd "$DIR"/.. || exit
     rebar3 compile
+    printf "\nTo test, run 'rebar3 eunit'\n\n"
 else
-    echo "Running 'rebar3 escriptize' in the proto_crudl lib directory"
+    printf "Running 'rebar3 escriptize' in the proto_crudl lib directory"
     cd "$DIR"/../.. || exit
     rebar3 escriptize
-    echo ""
-    echo ">> Rerun this script to generate the example code"
+    printf ""
+    printf ">> Rerun this script to generate the example code"
 fi

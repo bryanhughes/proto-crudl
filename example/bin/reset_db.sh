@@ -21,9 +21,3 @@ EOF
 echo "Creating schema from ${DIR}/../sql/example.sql"
 PGPASSWORD=proto_crudl psql -h localhost -p 5432 -U proto_crudl -d proto_crudl -a -f "${DIR}"/../sql/example.sql
 
-#psql -d $2 -a -f $3
-#
-#if [[ $# -eq 4 ]]; then
-#    echo "Loading seed data..."
-#    psql -d $2 -a -f $4
-#fi
