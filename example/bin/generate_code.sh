@@ -2,9 +2,9 @@
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
-if [[ -f "$DIR"/../../_build/default/bin/erl_crudl ]]
+if [[ -f "$DIR"/../../_build/default/bin/proto_crudl ]]
 then
-    "$DIR"/../../_build/default/bin/erl_crudl "$DIR"/../config/erl_crudl.config
+    "$DIR"/../../_build/default/bin/proto_crudl "$DIR"/../config/proto_crudl.config
 
     mkdir -p "$DIR/../output/java"
 
@@ -27,7 +27,7 @@ then
     cd "$DIR"/.. || exit
     rebar3 compile
 else
-    echo "Running 'rebar3 escriptize' in the erl_crudl lib directory"
+    echo "Running 'rebar3 escriptize' in the proto_crudl lib directory"
     cd "$DIR"/../.. || exit
     rebar3 escriptize
     echo ""

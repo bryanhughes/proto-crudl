@@ -85,24 +85,24 @@ To start the docker service
     sudo snap start docker
     
 ## Setting Up Database For Building The Examples
-First, start the docker image in the examples sub directory and then create the Role and Database
+First, start the docker image in the examples sub directory and then create the Role and    Database
 
     cd example
     docker-compose up
  
 Now log in as the user locally to postgres running in the container
 
-    psql -h localhost -p 5432 -U erl_crudl
+    psql -h localhost -p 5432 -U proto_crudl
 
 or you can try...
 
-    docker run -it --link some-postgis:postgres --rm postgres sh -c 'exec psql -h "$POSTGRES_PORT_5432_TCP_ADDR" -p "$POSTGRES_PORT_5432_TCP_PORT" -U erl_crudl'
+    docker run -it --link some-postgis:postgres --rm postgres sh -c 'exec psql -h "$POSTGRES_PORT_5432_TCP_ADDR" -p "$POSTGRES_PORT_5432_TCP_PORT" -U proto_crudl'
 
 
 ## Resetting the Example Database
 This helper script will allow you to rapidly drop and recreate your database
 
-    bin/reset_db.sh erl_crudl erl_crudl example/sql/example_schema.sql example/sql/example_data.sql
+    bin/reset_db.sh proto_crudl proto_crudl example/sql/example_schema.sql example/sql/example_data.sql
 
 <hr>
 
@@ -118,7 +118,7 @@ Run
 
 or directly
 
-    _build/default/bin/erl_crudl <config>
+    _build/default/bin/proto_crudl <config>
 
 
 ## Building the Example
@@ -130,7 +130,7 @@ the code in the example schema, which is located in `example/sql`. The schema wa
 lot of corner cases, like a table without a primary key.
 
 ## Running the eunit tests
-The eunit tests are inline with the code at the end of the modules. Several of them expect that erl_crudl database
+The eunit tests are inline with the code at the end of the modules. Several of them expect that proto_crudl database
 from the example directory to have been built.
 
     rebar3 eunit
@@ -139,17 +139,17 @@ You can run the eunit tests again after your generate the example code to then t
 `user` table to make sure everything works.
     
 ## Testing the Generated Code    
-Please note that there are two eunit tests which will test the generated code. They are located in `erl_crudl` and are 
+Please note that there are two eunit tests which will test the generated code. They are located in `proto_crudl` and are 
 called `crud_test` and `change_id_test`.
     
-Using erl_crudl
+Using proto_crudl
 ---
 Include this as a dependency in your `rebar.config`. I would recommend that you copy the script
 `generate_code.sh` to your project and modify accordingly. You will need to run this the first time, and
 any other time you alter your database schema. 
 
-# erl_crudl.config
-You will want to look at [example/config/erl_crudl.config](example/config/erl_crudl.config) as a guide
+# proto_crudl.config
+You will want to look at [example/config/proto_crudl.config](example/config/proto_crudl.config) as a guide
 for your own config. It gives a complete example with inline documentation of the current functionality of the tool.
 
 Almost all of the configs follow the pattern of a list of tuples where the first element in the tuple is the table and
@@ -169,7 +169,7 @@ Will generate two `lookup/1` functions on the `product_db` module. It is advised
 table covering the columns. The second config will generate a lookup that covers the three columns so a corresponding 
 composite index will be required.
 
-The more complex feature of `erl_crudl` is the ability to apply transformations or sql functions. If you are using PostGIS,
+The more complex feature of `proto_crudl` is the ability to apply transformations or sql functions. If you are using PostGIS,
 or need to apply other functions, you will need to use this feature.
 
 ```
@@ -187,7 +187,7 @@ Following the same pattern of a list of tables with a list of tuples. In the cas
 `geography`, you must define each of the operations insert/create, update, and select/read on how the column values will
 be handled to and from the database. The result is that the columns `lat` and `lon` will be generated as `virtual` 
 columns in the mapping. Note that when referencing them in the function body (the second element of the tuple), you will
-need to prepend them with the `$` so that `erl_crudl` knows they are the virtual columns being operated on. 
+need to prepend them with the `$` so that `proto_crudl` knows they are the virtual columns being operated on. 
 For the `insert` operation, a single tuple is defined which will
 result in the extension function `ST_POINT($lat, $lon)::geography` to be applied to the bind values of the `INSERT` 
 statement. Resulting in the following code:
@@ -213,8 +213,8 @@ I would recommend that you build the example project and then review the generat
 understanding.
 
 ## The special change_id column
-The erl_crudl framework implements all the necessary code to support tracking changes to a table that has a column called 
-`change_id`. When a table has this column, erl_crudl will generate code that will automatically handle updating the 
+The proto_crudl framework implements all the necessary code to support tracking changes to a table that has a column called 
+`change_id`. When a table has this column, proto_crudl will generate code that will automatically handle updating the 
 column value on a good update, as well as guard against updating the table from a stale map. If the current value of
 `change_id` is `100` and you attempt to update using a map that has the change_id value of 90, the update will return
 with `not_found`, otherwise update returns `{ok, Map}`.
@@ -242,7 +242,7 @@ update(_M) ->
 
 # erleans/pgo
 
-Finally, `erl_crudl` uses [erleans/pgo](https://github.com/erleans/pgo) for its Postgres connectivity (which is currently)
+Finally, `proto_crudl` uses [erleans/pgo](https://github.com/erleans/pgo) for its Postgres connectivity (which is currently)
 the only supported database. If you want the pgo client to return UUID as binary strings, set an application environment
 variable or in your sys.config:
 
@@ -250,15 +250,15 @@ variable or in your sys.config:
 
     {pgo, [{pools, [{default, #{pool_size => 10,
                                 host => "127.0.0.1",
-                                database => "erl_crudl",
-                                user => "erl_crudl",
-                                password => "erl_crudl"}}]}]}
+                                database => "proto_crudl",
+                                user => "proto_crudl",
+                                password => "proto_crudl"}}]}]}
 
 Size the pool according to your requirements.    
     
 Generating Protobuffers
 ---
-erl_crudl will generate protobuffers that map to the relational schema including foreign key relationships. The tool
+proto_crudl will generate protobuffers that map to the relational schema including foreign key relationships. The tool
 correctly handles relationships across schemas. 
 
 *TODO:*
@@ -283,8 +283,8 @@ Using In Your Project
 ---
 You will need to include the deps in your `rebar.config`:
 
-    {erl_crudl, {git, "https://github.com/bryanhughes/erl_crudl.git", {branch, "master"}}},
+    {proto_crudl, {git, "https://github.com/bryanhughes/proto_crudl.git", {branch, "master"}}},
 
-Next, create your `erl_crudl.config`. You can simply copy and modify the one in the repo. Also, copy and rename
+Next, create your `proto_crudl.config`. You can simply copy and modify the one in the repo. Also, copy and rename
 the `example/bin/build_example.sh` and move it into your `bin` or other directory. Run it once to generate the 
 code and protos, and any other time you modify your schema.

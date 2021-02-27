@@ -6,13 +6,13 @@
 %%% @end
 %%% Created : 17. Nov 2020 5:10 PM
 %%%-------------------------------------------------------------------
--module(erl_crudl).
+-module(proto_crudl).
 -author("bryan").
 
 %% API
 -export([main/1, make_fqn/1, format_fqn/1, process_configs/2]).
 
--include("erl_crudl.hrl").
+-include("proto_crudl.hrl").
 
 %% escript Entry point
 main(Args = [ConfigFile]) ->
@@ -46,10 +46,10 @@ main(Args = [ConfigFile]) ->
                     {ok, Database1} = process_configs(GeneratorConfig, Database0),
 
                     % Now generate the protobuffers
-                    ok = erl_crudl_proto:generate(ProtoConfig, Database1),
+                    ok = proto_crudl_proto:generate(ProtoConfig, Database1),
 
                    % Generate the Erlang code
-                   ok = erl_crudl_code:generate(ProviderConfig, OutputConfig, Database1),
+                   ok = proto_crudl_code:generate(ProviderConfig, OutputConfig, Database1),
 
                     io:format("~n---------------- DONE -----------------~n"),
                     ok;
@@ -63,7 +63,7 @@ main(Args) ->
 
 
 show_usage() ->
-    io:format("usage: erl_crudl <erl_crudl.config>~n~n"),
+    io:format("usage: proto_crudl <proto_crudl.config>~n~n"),
     io:format("This script will generate all the Create, Read, Update, Delete, and List/Search functions for each~n"),
     io:format("table in the database as a module.~n~n").
 
@@ -80,7 +80,7 @@ start_provider([{provider, Provider}, _, _, _, _, _]) ->
 read_database(ProviderOptions, Generator) ->
     case proplists:get_value(provider, ProviderOptions) of
         postgres ->
-            erl_crudl_psql:read_database(Generator);
+            proto_crudl_psql:read_database(Generator);
         Other ->
             {error, {unsupported_provider, Other}}
     end.
@@ -181,8 +181,8 @@ apply_column_transforms(_Clause, Table, []) ->
     {ok, Table};
 apply_column_transforms(select, Table = #table{columns = ColDict, schema = S, name = N},
                         [X = {CName, Datatype, Operator} | Rest]) ->
-    Op = erl_crudl_utils:to_binary(Operator),
-    CName1 = erl_crudl_utils:to_binary(CName),
+    Op = proto_crudl_utils:to_binary(Operator),
+    CName1 = proto_crudl_utils:to_binary(CName),
     case orddict:find(CName1, ColDict) of
         {ok, Column} ->
             ColDict1 = orddict:store(CName1, Column#column{select_xform = Op}, ColDict),
@@ -190,7 +190,7 @@ apply_column_transforms(select, Table = #table{columns = ColDict, schema = S, na
         error ->
             io:format("        INFO: Adding virtual column ~0p to ~0p.~0p from transform ~0p~n", [CName1, S, N, X]),
             VirtualColumn = #column{table_schema = S, table_name = N, name = CName1, ordinal_position = 99,
-                                    data_type    = <<"virtual">>, udt_name = erl_crudl_utils:to_binary(Datatype),
+                                    data_type    = <<"virtual">>, udt_name = proto_crudl_utils:to_binary(Datatype),
                                     is_virtual   = true, is_nullable = true, default = null},
 
             ColDict1 = orddict:store(CName1, VirtualColumn#column{select_xform = Op},
@@ -202,8 +202,8 @@ apply_column_transforms(select, Table = #table{columns = ColDict, schema = S, na
     end;
 apply_column_transforms(insert, Table = #table{columns = ColDict, schema = S, name = N},
                         [X = {CName, _Datatype, Operator} | Rest]) ->
-    Op = erl_crudl_utils:to_binary(Operator),
-    CName1 = erl_crudl_utils:to_binary(CName),
+    Op = proto_crudl_utils:to_binary(Operator),
+    CName1 = proto_crudl_utils:to_binary(CName),
     case orddict:find(CName1, ColDict) of
         {ok, Column} ->
             ColDict1 = orddict:store(CName1, Column#column{insert_xform = Op}, ColDict),
@@ -214,8 +214,8 @@ apply_column_transforms(insert, Table = #table{columns = ColDict, schema = S, na
     end;
 apply_column_transforms(update, Table = #table{columns = ColDict, schema = S, name = N},
                         [X = {CName, _Datatype, Operator} | Rest]) ->
-    Op = erl_crudl_utils:to_binary(Operator),
-    CName1 = erl_crudl_utils:to_binary(CName),
+    Op = proto_crudl_utils:to_binary(Operator),
+    CName1 = proto_crudl_utils:to_binary(CName),
     case orddict:find(CName1, ColDict) of
         {ok, Column} ->
             ColDict1 = orddict:store(CName1, Column#column{update_xform = Op}, ColDict),
@@ -270,7 +270,7 @@ process_options([], Database) ->
     {ok, Database};
 process_options([{version_column, ColumnName} | Rest], Database = #database{tables = TablesDict}) ->
     %% Test for existence and inject column if not there
-    case maybe_inject_version(erl_crudl_utils:to_binary(ColumnName), dict:to_list(TablesDict), Database) of
+    case maybe_inject_version(proto_crudl_utils:to_binary(ColumnName), dict:to_list(TablesDict), Database) of
         {ok, Database1} ->
             process_options(Rest, Database1);
         {error, Reason} ->
@@ -305,7 +305,7 @@ maybe_inject_version(ColumnName, [{_Key, T0 = #table{columns = Columns0}} | Rest
             case pgo:query(Alter, [], #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}]}) of
                 #{command := alter, num_rows := table, rows := []} ->
                     % Reread the columns
-                    case erl_crudl_psql:read_table(T0#table.schema, T0#table.name) of
+                    case proto_crudl_psql:read_table(T0#table.schema, T0#table.name) of
                         {ok, T1} ->
                             FQN = make_fqn(T1),
                             maybe_inject_version(ColumnName, Rest, Db#database{tables = dict:store(FQN, T1, TableDict)});
@@ -349,7 +349,7 @@ mark_excluded(T, []) ->
     {ok, T};
 mark_excluded(T = #table{select_list = SList, insert_list = IList, update_list = UList, columns = ColDict},
               [CName | Rest]) ->
-    ColName = erl_crudl_utils:to_binary(CName),
+    ColName = proto_crudl_utils:to_binary(CName),
     case orddict:find(ColName, ColDict) of
         {ok, Column} ->
             case Column#column.is_pkey of
@@ -370,7 +370,7 @@ mark_excluded(T = #table{select_list = SList, insert_list = IList, update_list =
 
 -spec format_fqn(binary()) -> binary() | failed.
 format_fqn(FQN) ->
-    B_FQN = erl_crudl_utils:to_binary(FQN),
+    B_FQN = proto_crudl_utils:to_binary(FQN),
     case binary:split(B_FQN, <<".">>) of
         [T] ->
             <<<<"public.">>/binary, T/binary>>;
@@ -391,8 +391,8 @@ make_fqn(#table{schema = S, name = N}) ->
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("kernel/include/logger.hrl").
 
--define(DROP_DB, "DROP DATABASE erl_crudl").
--define(CREATE_DB, "CREATE DATABASE erl_crudl WITH OWNER = erl_crudl ENCODING = 'UTF8' TEMPLATE = template0 CONNECTION LIMIT = -1").
+-define(DROP_DB, "DROP DATABASE proto_crudl").
+-define(CREATE_DB, "CREATE DATABASE proto_crudl WITH OWNER = proto_crudl ENCODING = 'UTF8' TEMPLATE = template0 CONNECTION LIMIT = -1").
 
 first_test() ->
     logger:set_primary_config(level, info),
@@ -401,16 +401,16 @@ first_test() ->
     pgo:start_pool(default, #{pool_size => 10,
                               host => "127.0.0.1",
                               port => 5432,
-                              database => "erl_crudl",
-                              user => "erl_crudl",
-                              password => "erl_crudl"}),
+                              database => "proto_crudl",
+                              user => "proto_crudl",
+                              password => "proto_crudl"}),
 
     ok.
 
 process_transforms_test() ->
     ?LOG_INFO("====================== process_transforms_test() START ======================"),
 
-    {ok, Database} = erl_crudl_psql:read_database([{schemas, ["public", "test_schema"]},
+    {ok, Database} = proto_crudl_psql:read_database([{schemas, ["public", "test_schema"]},
                                                    {excluded, ["public.excluded", "spatial_ref_sys"]}]),
 
     Configs = [{transforms, [
@@ -473,7 +473,7 @@ process_transforms_test() ->
 process_mappings_test() ->
     ?LOG_INFO("====================== process_mappings_test() START ======================"),
 
-    {ok, Database} = erl_crudl_psql:read_database([{schemas, ["public", "test_schema"]},
+    {ok, Database} = proto_crudl_psql:read_database([{schemas, ["public", "test_schema"]},
                                                    {excluded, ["public.excluded", "spatial_ref_sys"]}]),
 
     Configs = [{mapping, [
@@ -513,7 +513,7 @@ process_mappings_test() ->
 mark_excluded_columns_test() ->
     ?LOG_INFO("====================== mark_excluded_columns_test() START ======================"),
 
-    {ok, Database} = erl_crudl_psql:read_database([{schemas, ["public", "test_schema"]},
+    {ok, Database} = proto_crudl_psql:read_database([{schemas, ["public", "test_schema"]},
                                                    {excluded, ["public.excluded", "spatial_ref_sys"]}]),
 
     Configs = [{exclude_columns, [
@@ -555,7 +555,7 @@ mark_excluded_columns_test() ->
 inject_version_test() ->
     ?LOG_INFO("====================== inject_version_test() START ======================"),
 
-    {ok, Database} = erl_crudl_psql:read_database([{schemas, ["public", "test_schema"]},
+    {ok, Database} = proto_crudl_psql:read_database([{schemas, ["public", "test_schema"]},
                                                    {excluded, ["public.excluded", "spatial_ref_sys"]}]),
 
     Configs = [{options, [{version_column, "version"}, indexed_lookups, check_constraints_as_enums]}],
@@ -599,7 +599,7 @@ cleanup_version([{_Key, T0} | Rest]) ->
 
 last_test() ->
     ?LOG_INFO("====================== CLEANING UP VERSION COLUMNS ======================"),
-    {ok, Database} = erl_crudl_psql:read_database([{schemas, ["public", "test_schema"]},
+    {ok, Database} = proto_crudl_psql:read_database([{schemas, ["public", "test_schema"]},
                                                    {excluded, ["public.excluded", "spatial_ref_sys"]}]),
 
     TablesDict = Database#database.tables,

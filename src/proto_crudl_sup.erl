@@ -1,9 +1,9 @@
 %%%-------------------------------------------------------------------
-%% @doc erl_crudl top level supervisor.
+%% @doc proto_crudl top level supervisor.
 %% @end
 %%%-------------------------------------------------------------------
 
--module(erl_crudl_sup).
+-module(proto_crudl_sup).
 
 -behaviour(supervisor).
 

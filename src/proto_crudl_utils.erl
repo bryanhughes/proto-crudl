@@ -6,7 +6,7 @@
 %%% @end
 %%% Created : 12. Jun 2019 12:02 PM
 %%%-------------------------------------------------------------------
--module(erl_crudl_utils).
+-module(proto_crudl_utils).
 -author("bryan").
 
 %% API

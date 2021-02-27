@@ -19,9 +19,9 @@ first_test() ->
     application:set_env(pg_types, uuid_format, string),
     pgo:start_pool(default, #{pool_size => 10,
                               host => "127.0.0.1",
-                              database => "erl_crudl",
-                              user => "erl_crudl",
-                              password => "erl_crudl"}),
+                              database => "proto_crudl",
+                              user => "proto_crudl",
+                              password => "proto_crudl"}),
     ok.
 
 crudl_proto_test() ->

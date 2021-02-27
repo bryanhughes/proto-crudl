@@ -6,13 +6,13 @@
 %%% @end
 %%% Created : 02. Feb 2021 2:51 PM
 %%%-------------------------------------------------------------------
--module(erl_crudl_proto).
+-module(proto_crudl_proto).
 -author("bryan").
 
 %% API
 -export([generate/2, make_enum_label/1]).
 
--include("erl_crudl.hrl").
+-include("proto_crudl.hrl").
 
 -spec generate([{atom(), string()}], #database{}) -> ok | failed.
 generate(Options, #database{tables = TableDict}) ->
@@ -29,8 +29,8 @@ generate(_Version, _Path, _JavaPackage, _TableDict, []) ->
     ok;
 generate(Version, Path, JavaPackage, TableDict, [FQN | Rest]) ->
     Table = dict:fetch(FQN, TableDict),
-    Schema = erl_crudl_utils:to_string(Table#table.schema),
-    Name = erl_crudl_utils:to_string(Table#table.name),
+    Schema = proto_crudl_utils:to_string(Table#table.schema),
+    Name = proto_crudl_utils:to_string(Table#table.name),
     ProtoFile = filename:join([Path, Schema, Name ++ ".proto"]),
     io:format("~p~n", [ProtoFile]),
 
@@ -60,14 +60,14 @@ write_proto(Version, ProtoFile, JavaPackage, Table) ->
              "syntax = \"" ++ Version ++ "\";\n\n",
     ok = file:write_file(ProtoFile, Header, [write]),
 
-    Schema = erl_crudl_utils:to_string(Table#table.schema),
-    TableName = erl_crudl_utils:to_string(Table#table.name),
+    Schema = proto_crudl_utils:to_string(Table#table.schema),
+    TableName = proto_crudl_utils:to_string(Table#table.name),
 
     % The proto package is the database schema, otherwise we will have collisions
     ok = file:write_file(ProtoFile, "package " ++ Schema ++ ";\n\n", [append]),
 
     % Write the options (if specified)
-    MessageName = erl_crudl_utils:camel_case(TableName),
+    MessageName = proto_crudl_utils:camel_case(TableName),
     write_options(ProtoFile, Schema, MessageName, JavaPackage),
 
     % Write the other imports first, like support for Timestamps
@@ -123,9 +123,9 @@ write_proto_enums(ProtoFile, #table{columns = ColDict}) ->
                     0 ->
                         Acc;
                     _ ->
-                        Line = "  enum " ++ erl_crudl_utils:camel_case(ColumnName) ++ " {\n",
+                        Line = "  enum " ++ proto_crudl_utils:camel_case(ColumnName) ++ " {\n",
                         Inner = fun(Value, {FieldNo, List}) ->
-                                    V = make_enum_label(erl_crudl_utils:to_string(Value)),
+                                    V = make_enum_label(proto_crudl_utils:to_string(Value)),
                                     {FieldNo + 1, ["    " ++ V ++ " = " ++ integer_to_list(FieldNo) ++ ";\n" | List]}
                                 end,
                         {_FieldNo, Lines} = lists:foldl(Inner, {0, [Line]}, ValidValues),
@@ -140,7 +140,7 @@ write_proto_enums(ProtoFile, #table{columns = ColDict}) ->
 
 -spec make_enum_label(string()) -> string().
 make_enum_label(Value) when is_binary(Value) ->
-    make_enum_label(erl_crudl_utils:to_string(Value));
+    make_enum_label(proto_crudl_utils:to_string(Value));
 make_enum_label(Value) ->
     Value2 = lists:flatten(string:replace(string:replace(Value, "-", "_"), " ", "_")),
     case [Char || Char <- Value2, Char >= $0 andalso Char =< $9] of
@@ -157,15 +157,15 @@ write_proto_fields(Version, #table{columns = ColDict, select_list = SList}) ->
                 DataType = Column#column.data_type,
                 UdtName = Column#column.udt_name,
                 FieldType = case Column#column.valid_values of
-                                [] -> erl_crudl_psql:sql_to_proto_datatype(UdtName);
-                                _ -> erl_crudl_utils:camel_case(ColumnName)
+                                [] -> proto_crudl_psql:sql_to_proto_datatype(UdtName);
+                                _ -> proto_crudl_utils:camel_case(ColumnName)
                             end,
                 Repeated = case DataType of
                                <<"ARRAY">> -> "repeated ";
                                _ -> case Version of "proto2" -> "optional "; _ -> "" end
                            end,
                 Line = "  " ++ Repeated ++ FieldType ++ " " ++
-                               erl_crudl_utils:to_string(ColumnName) ++ " = " ++
+                               proto_crudl_utils:to_string(ColumnName) ++ " = " ++
                                integer_to_list(FieldNo) ++ ";\n",
                 case lists:member(Line, List) of
                     true -> {FieldNo, List};

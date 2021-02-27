@@ -6,10 +6,10 @@
 %%% @end
 %%% Created : 09. Jan 2021 11:18 AM
 %%%-------------------------------------------------------------------
--module(erl_crudl_psql).
+-module(proto_crudl_psql).
 -author("bryan").
 
--include("erl_crudl.hrl").
+-include("proto_crudl.hrl").
 
 %% API
 -export([read_database/1, is_int64/1, is_int32/1, is_sql_float/1, read_columns/1, read_table/2,
@@ -183,9 +183,9 @@ process_tables([], TablesDict) ->
     {ok, TablesDict};
 process_tables([#{table_name := T, table_schema := S} | Rest], TablesDict) ->
     io:format("Table: ~p.~p~n", [S, T]),
-    case read_table(erl_crudl_utils:to_binary(S), erl_crudl_utils:to_binary(T)) of
+    case read_table(proto_crudl_utils:to_binary(S), proto_crudl_utils:to_binary(T)) of
         {ok, Table} ->
-            FQN = erl_crudl:make_fqn(Table),
+            FQN = proto_crudl:make_fqn(Table),
             process_tables(Rest, dict:store(FQN, Table, TablesDict));
         {error, Reason} ->
             io:format("    ERROR: Failed to read columns for table ~p.~p. Reason=~p~n", [S, T, Reason]),
@@ -814,8 +814,8 @@ default_value(Unknown) ->
 
 -spec create_fun(string() | undefined, #table{}) -> string().
 create_fun(undefined, Table) ->
-    {Map, DMap} = erl_crudl_code:build_insert_map(Table),
-    {Param, DParam} = erl_crudl_code:build_insert_params(Table),
+    {Map, DMap} = proto_crudl_code:build_insert_map(Table),
+    {Param, DParam} = proto_crudl_code:build_insert_params(Table),
     "create(M = " ++ Map ++ ") when is_map(M) ->\n" ++
     "    Params = " ++ Param ++ ",\n"
     "    case pgo:query(?INSERT, Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
@@ -832,8 +832,8 @@ create_fun(undefined, Table) ->
     "create(_M) ->\n"
     "    {error, invalid_map}.\n\n";
 create_fun(RecordName, Table = #table{default_list = DL}) ->
-    {Record, DRecord} = erl_crudl_code:build_insert_record(RecordName, Table),
-    {Param, DParam} = erl_crudl_code:build_insert_params(Table),
+    {Record, DRecord} = proto_crudl_code:build_insert_record(RecordName, Table),
+    {Param, DParam} = proto_crudl_code:build_insert_params(Table),
     Str = "create(R = " ++ Record ++ ") when is_record(R, " ++ RecordName ++ ") ->\n" ++
     "    Params = " ++ Param ++ ",\n"
     "    case pgo:query(?INSERT, Params, #{decode_opts => [{return_rows_as_maps, false}, {decode_fun, fun decode_row/2}]}) of\n"
@@ -913,8 +913,8 @@ read_or_create_fun(RecordName) ->
 
 -spec read_fun(string() | undefined, #table{}) -> string().
 read_fun(undefined, Table) ->
-    Map = erl_crudl_code:build_select_map(Table),
-    Params = erl_crudl_code:build_select_params(Table),
+    Map = proto_crudl_code:build_select_map(Table),
+    Params = proto_crudl_code:build_select_params(Table),
     "read(M = " ++ Map ++ ") when is_map(M) ->\n"
     "    Params = " ++ Params ++ ",\n"
     "    case pgo:query(?SELECT, Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
@@ -928,8 +928,8 @@ read_fun(undefined, Table) ->
     "read(_M) ->\n"
     "    {error, invalid_map}.\n\n";
 read_fun(RecordName, Table) ->
-    Record = erl_crudl_code:build_select_record(RecordName, Table),
-    Params = erl_crudl_code:build_select_params(Table),
+    Record = proto_crudl_code:build_select_record(RecordName, Table),
+    Params = proto_crudl_code:build_select_params(Table),
     "read(R = " ++ Record ++ ") when is_record(R, " ++ RecordName ++ ") ->\n"
     "    Params = " ++ Params ++ ",\n"
     "    case pgo:query(?SELECT, Params, #{decode_opts => [{return_rows_as_maps, false}, {decode_fun, fun decode_row/2}]}) of\n"
@@ -945,8 +945,8 @@ read_fun(RecordName, Table) ->
 
 -spec update_fun(string() | undefined, #table{}) -> string().
 update_fun(undefined, Table) ->
-    Map = erl_crudl_code:build_update_map(Table),
-    Params = erl_crudl_code:build_update_params(Table),
+    Map = proto_crudl_code:build_update_map(Table),
+    Params = proto_crudl_code:build_update_params(Table),
     "update(M = " ++ Map ++ ") when is_map(M) ->\n" ++
     "    Params = " ++ Params ++ ",\n"
     "    case pgo:query(?UPDATE, Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
@@ -960,8 +960,8 @@ update_fun(undefined, Table) ->
     "update(_M) ->\n"
     "    {error, invalid_map}.\n\n";
 update_fun(RecordName, Table) ->
-    Record = erl_crudl_code:build_update_record(RecordName, Table),
-    Params = erl_crudl_code:build_update_params(Table),
+    Record = proto_crudl_code:build_update_record(RecordName, Table),
+    Params = proto_crudl_code:build_update_params(Table),
     "update(R = " ++ Record ++ ") when is_record(R, " ++ RecordName ++ ") ->\n" ++
     "    Params = " ++ Params ++ ",\n"
     "    case pgo:query(?UPDATE, Params, #{decode_opts => [{return_rows_as_maps, false}, {decode_fun, fun decode_row/2}]}) of\n"
@@ -977,8 +977,8 @@ update_fun(RecordName, Table) ->
 
 -spec delete_fun(string() | undefined, #table{}) -> string().
 delete_fun(undefined, Table) ->
-    Map = erl_crudl_code:build_delete_map(Table),
-    Params = erl_crudl_code:build_delete_params(Table),
+    Map = proto_crudl_code:build_delete_map(Table),
+    Params = proto_crudl_code:build_delete_params(Table),
     "delete(M = " ++ Map ++ ") when is_map(M) ->\n"
     "    Params = " ++ Params ++ ",\n"
     "    case pgo:query(?DELETE, Params) of\n"
@@ -992,8 +992,8 @@ delete_fun(undefined, Table) ->
     "delete(_M) ->\n"
     "    {error, invalid_map}.\n\n";
 delete_fun(RecordName, Table) ->
-    Record = erl_crudl_code:build_delete_record(RecordName, Table),
-    Params = erl_crudl_code:build_delete_params(Table),
+    Record = proto_crudl_code:build_delete_record(RecordName, Table),
+    Params = proto_crudl_code:build_delete_params(Table),
     "delete(R = " ++ Record ++ ") when is_record(R, " ++ RecordName ++ ") ->\n"
     "    Params = " ++ Params ++ ",\n"
     "    case pgo:query(?DELETE, Params) of\n"
@@ -1024,9 +1024,9 @@ list_lookup_fun(RecordName, #table{indexes = Indexes}) ->
 list_lookup_fun(_RecordName, [], Acc) ->
     Acc;
 list_lookup_fun(undefined, [#index{is_list = true, columns = Columns, name = N} | Rest], Acc) ->
-    Map = erl_crudl_code:build_lookup_list_map(undefined, Columns),
-    Params = erl_crudl_code:build_list_params(Columns),
-    Name = erl_crudl_utils:to_string(N),
+    Map = proto_crudl_code:build_lookup_list_map(undefined, Columns),
+    Params = proto_crudl_code:build_list_params(Columns),
+    Name = proto_crudl_utils:to_string(N),
     S = Name ++ "(M = " ++ Map ++ ", Limit, Offset) when is_map(M) ->\n"
     "    Params = " ++ Params ++ ",\n"
     "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
@@ -1037,9 +1037,9 @@ list_lookup_fun(undefined, [#index{is_list = true, columns = Columns, name = N} 
     "    end.\n\n",
     list_lookup_fun(undefined, Rest, [S | Acc]);
 list_lookup_fun(undefined, [#index{is_lookup = true, columns = Columns, name = N} | Rest], Acc) ->
-    Map = erl_crudl_code:build_lookup_list_map(undefined, Columns),
-    Params = erl_crudl_code:build_lookup_params(Columns),
-    Name = erl_crudl_utils:to_string(N),
+    Map = proto_crudl_code:build_lookup_list_map(undefined, Columns),
+    Params = proto_crudl_code:build_lookup_params(Columns),
+    Name = proto_crudl_utils:to_string(N),
     S = Name ++ "(M = " ++ Map ++ ") when is_map(M) ->\n"
     "    Params = " ++ Params ++ ",\n"
     "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
@@ -1050,9 +1050,9 @@ list_lookup_fun(undefined, [#index{is_lookup = true, columns = Columns, name = N
     "    end.\n\n",
     list_lookup_fun(undefined, Rest, [S | Acc]);
 list_lookup_fun(RecordName, [#index{is_list = true, columns = Columns, name = N} | Rest], Acc) ->
-    Record = erl_crudl_code:build_lookup_list_map(RecordName, Columns),
-    Params = erl_crudl_code:build_list_params(Columns),
-    Name = erl_crudl_utils:to_string(N),
+    Record = proto_crudl_code:build_lookup_list_map(RecordName, Columns),
+    Params = proto_crudl_code:build_list_params(Columns),
+    Name = proto_crudl_utils:to_string(N),
     S = Name ++ "(R = " ++ Record ++ ", Limit, Offset) when is_record(R, " ++ RecordName ++ ") ->\n"
         "    Params = " ++ Params ++ ",\n"
         "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{return_rows_as_maps, false}, {decode_fun, fun decode_row/2}]}) of\n"
@@ -1063,9 +1063,9 @@ list_lookup_fun(RecordName, [#index{is_list = true, columns = Columns, name = N}
         "    end.\n\n",
     list_lookup_fun(RecordName, Rest, [S | Acc]);
 list_lookup_fun(RecordName, [#index{is_lookup = true, columns = Columns, name = N} | Rest], Acc) ->
-    Record = erl_crudl_code:build_lookup_list_map(RecordName, Columns),
-    Params = erl_crudl_code:build_lookup_params(Columns),
-    Name = erl_crudl_utils:to_string(N),
+    Record = proto_crudl_code:build_lookup_list_map(RecordName, Columns),
+    Params = proto_crudl_code:build_lookup_params(Columns),
+    Name = proto_crudl_utils:to_string(N),
     S = Name ++ "(R = " ++ Record ++ ") when is_record(R, " ++ RecordName ++ ") ->\n"
         "    Params = " ++ Params ++ ",\n"
         "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
@@ -1088,7 +1088,7 @@ mapping_fun(_RecordName, [], Acc) ->
 mapping_fun(undefined, [{Name, Query} | Rest], Acc) ->
     Cnt = count_params(Query),
     Params = lists:flatten(lists:join(", ", ["Value" ++ integer_to_list(C) || C <- lists:seq(1, Cnt)])),
-    S = erl_crudl_utils:to_string(Name) ++ "(" ++ Params ++ ") ->\n"
+    S = proto_crudl_utils:to_string(Name) ++ "(" ++ Params ++ ") ->\n"
     "    Params = [" ++ Params ++ "],\n"
     "    case pgo:query(?" ++ string:to_upper(atom_to_list(Name)) ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
     "        #{num_rows := NRows, rows := Rows} ->\n"
@@ -1100,7 +1100,7 @@ mapping_fun(undefined, [{Name, Query} | Rest], Acc) ->
 mapping_fun(RecordName, [{Name, Query} | Rest], Acc) ->
     Cnt = count_params(Query),
     Params = lists:flatten(lists:join(", ", ["Value" ++ integer_to_list(C) || C <- lists:seq(1, Cnt)])),
-    S = erl_crudl_utils:to_string(Name) ++ "(" ++ Params ++ ") ->\n"
+    S = proto_crudl_utils:to_string(Name) ++ "(" ++ Params ++ ") ->\n"
     "    Params = [" ++ Params ++ "],\n"
     "    case pgo:query(?" ++ string:to_upper(atom_to_list(Name)) ++ ", Params, #{decode_opts => [{return_rows_as_maps, false}, {decode_fun, fun decode_row/2}]}) of\n"
     "        #{num_rows := NRows, rows := Rows} ->\n"

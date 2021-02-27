@@ -6,13 +6,13 @@
 %%% @end
 %%% Created : 16. Feb 2021 7:47 AM
 %%%-------------------------------------------------------------------
--module(erl_crutl_maps).
+-module(proto_crutl_maps).
 -author("bryan").
 
 %% API
 -export([generate_functions/3]).
 
--include("erl_crudl.hrl").
+-include("proto_crudl.hrl").
 
 -spec generate_functions(postgres | any(), string(), #table{}) -> ok.
 generate_functions(postgres, FullPath, Table) ->
@@ -20,19 +20,19 @@ generate_functions(postgres, FullPath, Table) ->
     ok = file:write_file(FullPath, ts_support(orddict:to_list(Table#table.columns)), [append]),
     ok = file:write_file(FullPath, empty_map(Table), [append]),
     ok = file:write_file(FullPath, row_decoder(Table), [append]),
-    ok = file:write_file(FullPath, erl_crudl_psql:limit_fun(), [append]),
-    ok = file:write_file(FullPath, erl_crudl_psql:create_fun(undefined, Table), [append]),
+    ok = file:write_file(FullPath, proto_crudl_psql:limit_fun(), [append]),
+    ok = file:write_file(FullPath, proto_crudl_psql:create_fun(undefined, Table), [append]),
     case Table#table.pkey_list of
         [] ->
             ok;
         _ ->
-            ok = file:write_file(FullPath, erl_crudl_psql:read_or_create_fun(undefined), [append]),
-            ok = file:write_file(FullPath, erl_crudl_psql:read_fun(undefined, Table), [append]),
-            ok = file:write_file(FullPath, erl_crudl_psql:update_fun(undefined, Table), [append]),
-            ok = file:write_file(FullPath, erl_crudl_psql:delete_fun(undefined, Table), [append])
+            ok = file:write_file(FullPath, proto_crudl_psql:read_or_create_fun(undefined), [append]),
+            ok = file:write_file(FullPath, proto_crudl_psql:read_fun(undefined, Table), [append]),
+            ok = file:write_file(FullPath, proto_crudl_psql:update_fun(undefined, Table), [append]),
+            ok = file:write_file(FullPath, proto_crudl_psql:delete_fun(undefined, Table), [append])
     end,
-    ok = file:write_file(FullPath, erl_crudl_psql:list_lookup_fun(undefined, Table), [append]),
-    ok = file:write_file(FullPath, erl_crudl_psql:mappings_fun(undefined, Table), [append]);
+    ok = file:write_file(FullPath, proto_crudl_psql:list_lookup_fun(undefined, Table), [append]),
+    ok = file:write_file(FullPath, proto_crudl_psql:mappings_fun(undefined, Table), [append]);
 generate_functions(Provider, _FullPath, _Table) ->
     io:format("ERROR: Provider ~p is not supported yet.~n", [Provider]),
     erlang:error(provider_not_supported).
@@ -50,20 +50,20 @@ row_decoder(_Table) ->
 build_row_args([], Acc) ->
     Acc;
 build_row_args([{_Key, #column{name = N, valid_values = V}} | Rest], Acc) when length(V) > 0 ->
-    build_row_args(Rest, [erl_crudl_utils:to_list(N) ++ " := " ++ erl_crudl_utils:camel_case(N) | Acc]);
+    build_row_args(Rest, [proto_crudl_utils:to_list(N) ++ " := " ++ proto_crudl_utils:camel_case(N) | Acc]);
 build_row_args([{_Key, #column{name = N, udt_name = <<116, 105, 109, 101, 115, 116, 97, 109, 112, _Rest/binary>>}} | Rest], Acc) ->
-    build_row_args(Rest, [erl_crudl_utils:to_list(N) ++ " := " ++ erl_crudl_utils:camel_case(N) | Acc]);
+    build_row_args(Rest, [proto_crudl_utils:to_list(N) ++ " := " ++ proto_crudl_utils:camel_case(N) | Acc]);
 build_row_args([_Head | Rest], Acc) ->
     build_row_args(Rest, Acc).
 
 build_row_assigns([], Acc) ->
     Acc;
 build_row_assigns([{_Key, #column{name = N, valid_values = V}} | Rest], Acc) when length(V) > 0 ->
-    Name = erl_crudl_utils:to_list(N),
-    build_row_assigns(Rest, [Name ++ " => " ++ Name ++ "_enum(" ++ erl_crudl_utils:camel_case(N) ++ ")" | Acc]);
+    Name = proto_crudl_utils:to_list(N),
+    build_row_assigns(Rest, [Name ++ " => " ++ Name ++ "_enum(" ++ proto_crudl_utils:camel_case(N) ++ ")" | Acc]);
 build_row_assigns([{_Key, #column{name = N, udt_name = <<116, 105, 109, 101, 115, 116, 97, 109, 112, _Rest/binary>>}} | Rest], Acc) ->
-    Name = erl_crudl_utils:to_list(N),
-    build_row_assigns(Rest, [Name ++ " => " ++ "ts_encode_map(" ++ erl_crudl_utils:camel_case(N) ++ ")" | Acc]);
+    Name = proto_crudl_utils:to_list(N),
+    build_row_assigns(Rest, [Name ++ " => " ++ "ts_encode_map(" ++ proto_crudl_utils:camel_case(N) ++ ")" | Acc]);
 build_row_assigns([_Head | Rest], Acc) ->
     build_row_assigns(Rest, Acc).
 
@@ -85,7 +85,7 @@ empty_map(Table) ->
 
 build_empty_map(Table) ->
     ColumnList = lists:reverse(Table#table.select_list),
-    lists:flatten("#{" ++ lists:join(", ", [erl_crudl_utils:to_string(C) ++ " => null" || C <- ColumnList,
+    lists:flatten("#{" ++ lists:join(", ", [proto_crudl_utils:to_string(C) ++ " => null" || C <- ColumnList,
                                             lists:member(C, Table#table.default_list) == false]) ++ "}").
 
 ts_support([]) ->
