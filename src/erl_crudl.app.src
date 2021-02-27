@@ -1,0 +1,16 @@
+{application, erl_crudl,
+ [{description, "A tool for mapping a relational database to protobuffers and Erlang"},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {mod, {erl_crudl_app, []}},
+  {applications,
+   [kernel,
+    stdlib,
+    pgo
+   ]},
+  {env,[]},
+  {modules, []},
+
+  {licenses, ["Apache 2.0"]},
+  {links, []}
+ ]}.

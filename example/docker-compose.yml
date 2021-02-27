@@ -1,0 +1,16 @@
+version: '3.6'
+services:
+  postgres:
+    image: postgis/postgis:latest
+    container_name: example-db
+    restart: always
+    environment:
+      - DATABASE_HOST=127.0.0.1
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=erl_crudl
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/1-init.sql
+      - ./sql/example.sql:/docker-entrypoint-initdb.d/2-example.sql
