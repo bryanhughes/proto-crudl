@@ -180,10 +180,10 @@ crudl_proto_test() ->
     ?assertEqual(Bryan7, test_schema_user_db:from_proto(Decoded)),
 
     {ok, 1, []} = test_schema_user_db:delete_user_by_email(<<"foo@gmail.com">>),
-    not_found = test_schema_user_db:read(#{user_id => BryanId}),
+    {ok, []} = test_schema_user_db:read(#{user_id => BryanId}),
 
     ok = test_schema_user_db:delete(#{user_id => TomId}),
-    not_found = test_schema_user_db:read(#{user_id => TomId}),
+    {ok, []} = test_schema_user_db:read(#{user_id => TomId}),
 
     ?LOG_INFO("====================== crudl_proto_test() END ======================"),
     ok.
