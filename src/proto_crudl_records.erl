@@ -43,9 +43,15 @@ generate_functions(Provider, _FullPath, _UsePackage, _Table) ->
 
 empty_record(RecordName, Table) ->
     "new() ->\n"
-    "    " ++ build_empty_record(RecordName, Table) ++ ".\n\n".
+    "    " ++ build_empty_record(false, RecordName, Table) ++ ".\n\n"
+    "new_default() ->\n"
+    "    " ++ build_empty_record(true, RecordName, Table) ++ ".\n\n".
 
-build_empty_record(RecordName, #table{select_list = SelectList, default_list = DefaultList}) ->
+
+build_empty_record(true, RecordName, #table{select_list = SelectList, default_list = DefaultList}) ->
     lists:flatten("#" ++ RecordName ++ "{" ++
                   lists:join(", ", [proto_crudl_utils:to_string(C) ++ " = null" || C <- SelectList,
-                                    lists:member(C, DefaultList) == false]) ++ "}").
+                                    lists:member(C, DefaultList) == false]) ++ "}");
+build_empty_record(_, RecordName, #table{select_list = SelectList}) ->
+    lists:flatten("#" ++ RecordName ++ "{" ++
+                                       lists:join(", ", [proto_crudl_utils:to_string(C) ++ " = null" || C <- SelectList]) ++ "}").

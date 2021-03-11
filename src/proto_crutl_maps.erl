@@ -81,12 +81,18 @@ to_from_proto() ->
 
 empty_map(Table) ->
     "new() ->\n"
-    "    " ++ build_empty_map(Table) ++ ".\n\n".
+    "    " ++ build_empty_map(false, Table) ++ ".\n\n"
+    "new_default() ->\n"
+    "    " ++ build_empty_map(true, Table) ++ ".\n\n".
 
-build_empty_map(Table) ->
+build_empty_map(true, Table) ->
     ColumnList = lists:reverse(Table#table.select_list),
     lists:flatten("#{" ++ lists:join(", ", [proto_crudl_utils:to_string(C) ++ " => null" || C <- ColumnList,
-                                            lists:member(C, Table#table.default_list) == false]) ++ "}").
+                                            lists:member(C, Table#table.default_list) == false]) ++ "}");
+build_empty_map(_, Table) ->
+    ColumnList = lists:reverse(Table#table.select_list),
+    lists:flatten("#{" ++ lists:join(", ", [proto_crudl_utils:to_string(C) ++ " => null" || C <- ColumnList]) ++ "}").
+
 
 ts_support([]) ->
     "";

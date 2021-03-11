@@ -19,5 +19,5 @@ PGPASSWORD=proto_crudl psql -h localhost -p 5432 -U proto_crudl << EOF
 EOF
 
 echo "Creating schema from ${DIR}/../sql/example.sql"
-PGPASSWORD=proto_crudl psql -h localhost -p 5432 -U proto_crudl -d proto_crudl -a -f "${DIR}"/../sql/example.sql
+PGPASSWORD=proto_crudl psql -h localhost -p 5432 -U proto_crudl -d proto_crudl -a -f "${DIR}"/../database/example.sql
 

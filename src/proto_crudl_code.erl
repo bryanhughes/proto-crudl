@@ -212,9 +212,11 @@ generate_exports(RecordsOrMaps, FullPath, Table) ->
             ok = file:write_file(FullPath, "-export([from_proto/1,\n"
                                            "         to_proto/1,\n"
                                            "         new/0,\n"
+                                           "         new_default/0,\n"
                                            "         create/1,\n", [append]);
         _ ->
             ok = file:write_file(FullPath, "-export([new/0,\n"
+                                           "         new_default/0,\n"
                                            "         create/1,\n", [append])
     end,
     case Table#table.pkey_list of
