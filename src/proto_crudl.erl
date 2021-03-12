@@ -419,8 +419,8 @@ process_transforms_test() ->
             % generating the protobufs
             {select, [{"lat", "decimal", "ST_Y(geog::geometry)"},
                       {"lon", "decimal", "ST_X(geog::geometry)"}]},
-            {insert, [{"geog", "geography", "ST_POINT($lat, $lon)::geography"}]},
-            {update, [{"geog", "geography", "ST_POINT($lat, $lon)::geography"}]}]},
+            {insert, [{"geog", "geography", "ST_POINT($lon, $lat)::geography"}]},
+            {update, [{"geog", "geography", "ST_POINT($lon, $lat)::geography"}]}]},
 
         {"public.foo", [
             {select, [{"foobar", "integer", "1"}]}]}
@@ -456,8 +456,8 @@ process_transforms_test() ->
                          data_type    = <<"USER-DEFINED">>, default = null, is_nullable = true, is_pkey = false,
                          is_sequence  = false, is_virtual = false, ordinal_position = 5,
                          udt_name     = <<"geography">>,
-                         insert_xform = <<"ST_POINT($lat, $lon)::geography">>,
-                         update_xform = <<"ST_POINT($lat, $lon)::geography">>}, Geog),
+                         insert_xform = <<"ST_POINT($lon, $lat)::geography">>,
+                         update_xform = <<"ST_POINT($lon, $lat)::geography">>}, Geog),
 
     Lat = orddict:fetch(<<"lat">>, ColumnDict),
     ?LOG_INFO("Lat=~p", [Lat]),
