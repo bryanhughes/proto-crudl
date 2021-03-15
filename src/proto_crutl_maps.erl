@@ -86,12 +86,16 @@ empty_map(Table) ->
     "    " ++ build_empty_map(true, Table) ++ ".\n\n".
 
 build_empty_map(true, Table) ->
+    ColDict = Table#table.columns,
     ColumnList = lists:reverse(Table#table.select_list),
     lists:flatten("#{" ++ lists:join(", ", [proto_crudl_utils:to_string(C) ++ " => null" || C <- ColumnList,
-                                            lists:member(C, Table#table.default_list) == false]) ++ "}");
+                                            lists:member(C, Table#table.default_list) == false andalso
+                                            proto_crudl_code:is_version(ColDict, C) == false]) ++ "}");
 build_empty_map(_, Table) ->
+    ColDict = Table#table.columns,
     ColumnList = lists:reverse(Table#table.select_list),
-    lists:flatten("#{" ++ lists:join(", ", [proto_crudl_utils:to_string(C) ++ " => null" || C <- ColumnList]) ++ "}").
+    lists:flatten("#{" ++ lists:join(", ", [proto_crudl_utils:to_string(C) ++ " => null" || C <- ColumnList,
+                                            proto_crudl_code:is_version(ColDict, C) == false]) ++ "}").
 
 
 ts_support([]) ->

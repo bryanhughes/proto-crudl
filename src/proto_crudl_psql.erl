@@ -155,7 +155,7 @@ read_schemas(_Generator, [], TablesDict) ->
 read_schemas(Generator, [Schema | Rest], TablesDict) ->
     Excluded = proplists:get_value(excluded, Generator),
     Options = proplists:get_value(options, Generator, []),
-    VersionColumn = proplists:get_value(version_column, Options, <<>>),
+    VersionColumn = proto_crudl_utils:to_binary(proplists:get_value(version_column, Options, <<>>)),
     logger:info("Generator=~0p, Options=~0p, VersionCollumn=~p", [Generator, Options, VersionColumn]),
     Excluded1 = [case string:split(FQN, ".") of Parts when length(Parts) == 1 -> FQN; Parts -> lists:nth(2, Parts) end || FQN <- Excluded],
     ExcludedTables1 = ["'" ++ Table ++ "'" || Table <- case Excluded1 of [] -> ["_"]; _ -> Excluded1 end],
@@ -254,8 +254,8 @@ process_columns(Table, VersionColumn, [#{column_name := CN, ordinal_position := 
     PkList = case IP of true -> [CN | Table#table.pkey_list]; _ -> Table#table.pkey_list end,
     Sequence = case IS of true -> CN; _ -> Table#table.sequence end,
     HasTimestamps = Table#table.has_timestamps or is_timestamp(UN),
-    io:format("    Column: ~p  ~p  ~p ... (default: ~p, is_pkey: ~p, is_seq: ~p, is_nullable: ~p, has_timestamps: ~p)~n",
-              [CN, DT, UN, CD, IP, IS, IN0, HasTimestamps]),
+    io:format("    Column: ~p  ~p  ~p ... (default: ~p, is_pkey: ~p, is_seq: ~p, is_nullable: ~p, is_version: ~p, has_timestamps: ~p)~n",
+              [CN, DT, UN, CD, IP, IS, IN0, IsVersion, HasTimestamps]),
     DefaultList = case {CD, IS} of
                       {null, false} ->
                           Table#table.default_list;
@@ -896,7 +896,7 @@ create_defaults_record_fun(_Table, RecordName, DRecord, DParam) ->
 read_or_create_fun(undefined) ->
     "read_or_create(M) when is_map(M) ->\n"
     "    case read(M) of\n"
-    "        {ok, []} ->\n"
+    "        notfound ->\n"
     "            create(M);\n"
     "        {ok, Map} ->\n"
     "            {ok, Map};\n"
@@ -908,7 +908,7 @@ read_or_create_fun(undefined) ->
 read_or_create_fun(RecordName) ->
     "read_or_create(R) when is_record(R, " ++ RecordName ++ ") ->\n"
     "    case read(R) of\n"
-    "        {ok, []} ->\n"
+    "        notfound ->\n"
     "            create(R);\n"
     "        {ok, Record} ->\n"
     "            {ok, Record};\n"
@@ -926,7 +926,7 @@ read_fun(undefined, Table) ->
     "    Params = " ++ Params ++ ",\n"
     "    case pgo:query(?SELECT, Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
     "        #{command := select, num_rows := 0} ->\n"
-    "            {ok, []};\n"
+    "            notfound;\n"
     "        #{command := select, num_rows := 1, rows := [Row]} ->\n"
     "            {ok, Row};\n"
     "        {error, Reason} ->\n"
@@ -941,7 +941,7 @@ read_fun(RecordName, Table) ->
     "    Params = " ++ Params ++ ",\n"
     "    case pgo:query(?SELECT, Params, #{decode_opts => [{return_rows_as_maps, false}, {decode_fun, fun decode_row/2}]}) of\n"
     "        #{command := select, num_rows := 0} ->\n"
-    "            {ok, []};\n"
+    "            notfound;\n"
     "        #{command := select, num_rows := 1, rows := [Row]} ->\n"
     "            {ok, Row};\n"
     "        {error, Reason} ->\n"
@@ -958,7 +958,7 @@ update_fun(undefined, Table) ->
     "    Params = " ++ Params ++ ",\n"
     "    case pgo:query(?UPDATE, Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
     "        #{command := update, num_rows := 0} ->\n"
-    "            {ok, []};\n"
+    "            notfound;\n"
     "        #{command := update, num_rows := 1, rows := [Row]} ->\n"
     "            {ok, Row};\n"
     "        {error, Reason} ->\n"
@@ -973,7 +973,7 @@ update_fun(RecordName, Table) ->
     "    Params = " ++ Params ++ ",\n"
     "    case pgo:query(?UPDATE, Params, #{decode_opts => [{return_rows_as_maps, false}, {decode_fun, fun decode_row/2}]}) of\n"
     "        #{command := update, num_rows := 0} ->\n"
-    "            {ok, []};\n"
+    "            notfound;\n"
     "        #{command := update, num_rows := 1, rows := [Row]} ->\n"
     "            {ok, Row};\n"
     "        {error, Reason} ->\n"
@@ -990,7 +990,7 @@ delete_fun(undefined, Table) ->
     "    Params = " ++ Params ++ ",\n"
     "    case pgo:query(?DELETE, Params) of\n"
     "        #{command := delete, num_rows := 0} ->\n"
-    "            not_found;\n"
+    "            notfound;\n"
     "        #{command := delete, num_rows := 1} ->\n"
     "            ok;\n"
     "        {error, Reason} ->\n"
@@ -1005,7 +1005,7 @@ delete_fun(RecordName, Table) ->
     "    Params = " ++ Params ++ ",\n"
     "    case pgo:query(?DELETE, Params) of\n"
     "        #{command := delete, num_rows := 0} ->\n"
-    "            not_found;\n"
+    "            notfound;\n"
     "        #{command := delete, num_rows := 1} ->\n"
     "            ok;\n"
     "        {error, Reason} ->\n"

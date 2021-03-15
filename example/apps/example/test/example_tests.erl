@@ -13,6 +13,7 @@
 -include_lib("kernel/include/logger.hrl").
 
 first_test() ->
+    application:ensure_all_started(logger),
     logger:set_primary_config(level, info),
     application:ensure_all_started(pgo),
     ?LOG_INFO("====================== first_test() Starting Database ======================"),
@@ -64,6 +65,7 @@ crudl_proto_test() ->
     ?assertEqual(<<"Hughes">>, maps:get(last_name, Bryan1)),
     ?assertEqual([1,2,3], maps:get(my_array, Bryan1)),
     ?assertEqual('BIG_SHOT', maps:get(user_type, Bryan1)),
+    ?assertEqual(0, maps:get(version, Bryan1)),
     ?assertEqual({{2021,2,23},{10,23,23.5}}, test_schema_user_db:ts_decode_map(maps:get(created_on, Bryan1))),
 
     % The code was generated with {use_defaults, true}, while non-foreign keys are set to a default or empty value
@@ -102,7 +104,9 @@ crudl_proto_test() ->
 
     ?LOG_INFO("Updating Bryan..."),
     Bryan4 = Bryan3#{user_token => <<"123345">>, enabled => false, email => <<"foo@gmail.com">>},
-    {ok, _} = test_schema_user_db:update(Bryan4),
+    ?LOG_INFO("Bryan4=~p", [Bryan4]),
+    {ok, Bryan4a} = test_schema_user_db:update(Bryan4),
+    ?assertEqual(1, maps:get(version, Bryan4a)),
 
     {ok, Bryan5} = test_schema_user_db:read(Bryan1),
     ?LOG_INFO("Bryan5=~p", [Bryan5]),
@@ -112,6 +116,7 @@ crudl_proto_test() ->
     ?assertEqual(<<"Hughes">>, maps:get(last_name, Bryan5)),
     ?assertEqual(<<"00000000-0000-0000-0000-000000123345">>, maps:get(user_token, Bryan5)),
     ?assertEqual(false, maps:get(enabled, Bryan5)),
+    ?assertEqual(1, maps:get(version, Bryan5)),
 
     {ok, Tom3} = test_schema_user_db:read(#{user_id => TomId}),
     ?LOG_INFO("Tom3=~p", [Tom3]),
@@ -176,8 +181,8 @@ crudl_proto_test() ->
     {ok, Bryan9} = test_schema_user_db:update(Bryan8),
     ?assertEqual(<<"Bagby">>, maps:get(last_name, Bryan9)),
 
-    % Try to update it again, should fail by returning no results
-    {ok, []} = test_schema_user_db:update(Bryan8),
+    % Try to update it again, should fail by returning no results because the version has changed
+    notfound = test_schema_user_db:update(Bryan8),
 
     %% Do some encoding/decoding
     Encoded = user_pb:encode_msg(test_schema_user_db:to_proto(Bryan7), 'test_schema.User'),
@@ -188,10 +193,10 @@ crudl_proto_test() ->
     ?assertEqual(Bryan7, test_schema_user_db:from_proto(Decoded)),
 
     {ok, 1, []} = test_schema_user_db:delete_user_by_email(<<"foo@gmail.com">>),
-    {ok, []} = test_schema_user_db:read(#{user_id => BryanId}),
+    notfound = test_schema_user_db:read(#{user_id => BryanId}),
 
     ok = test_schema_user_db:delete(#{user_id => TomId}),
-    {ok, []} = test_schema_user_db:read(#{user_id => TomId}),
+    notfound = test_schema_user_db:read(#{user_id => TomId}),
 
     ?LOG_INFO("====================== crudl_proto_test() END ======================"),
     ok.

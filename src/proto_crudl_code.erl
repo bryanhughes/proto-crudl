@@ -13,7 +13,7 @@
 -export([generate/3, build_insert_map/1, build_insert_params/1, build_select_map/1, build_select_params/1,
          build_update_map/1, build_update_params/1, build_delete_map/1, build_delete_params/1,
          build_lookup_list_map/2, build_list_params/1, build_lookup_params/1, build_update_record/2,
-         build_insert_record/2, build_select_record/2, build_delete_record/2, build_enum_case/1]).
+         build_insert_record/2, build_select_record/2, build_delete_record/2, build_enum_case/1, is_version/2]).
 
 -include("proto_crudl.hrl").
 
@@ -503,9 +503,15 @@ build_update_sql(Schema, Name, Table) ->
                       <<>> ->
                           PKColumns1;
                       VersionColumn ->
-                          Pos = get_pos(update, ColDict, SelectList, VersionColumn),
-                          lists:append(PKColumns1, [proto_crudl_utils:to_string(VersionColumn) ++ " = $" ++
-                                                    proto_crudl_utils:to_string(Pos)])
+                          case get_pos(update, ColDict, SelectList, proto_crudl_utils:to_binary(VersionColumn)) of
+                              -1 ->
+                                  io:format("    Failed to find ~p in ~p while building update SQL~n",
+                                            [VersionColumn, SelectList]),
+                                  erlang:error(failed_building_sql);
+                              Pos ->
+                                  lists:append(PKColumns1, [proto_crudl_utils:to_string(VersionColumn) ++ " = $" ++
+                                                            proto_crudl_utils:to_string(Pos)])
+                          end
                   end,
 
     logger:info("Clause2=~p, PKColumns1=~p", [Clause2, PKColumns1]),
@@ -693,7 +699,8 @@ build_insert_record(RecordName, #table{columns = ColDict, insert_list = InsertLi
     {lists:flatten("#" ++ RecordName ++ "{" ++ lists:join(", ", InsertColumns) ++ "}"),
      lists:flatten("#" ++ RecordName ++ "{" ++ lists:join(", ", InsertColumnsWODefaults) ++ "}")}.
 
-is_version(ColDict, C) ->
+-spec is_version(orddict:dict(), binary()) -> boolean().
+is_version(ColDict, C) when is_binary(C) ->
     Column = orddict:fetch(C, ColDict),
     Column#column.is_version.
 
@@ -746,27 +753,36 @@ rewrite_func_params(Which, ColDict, SelectList, Fun, [{char, 1, Chr}, {atom, 1, 
     % We have the parameter name
     Name = proto_crudl_utils:to_binary(lists:flatten([Chr, atom_to_list(Remaining)])),
     % Now find the position in the read list
-    Pos = get_pos(Which, ColDict, SelectList, Name),
-    logger:info("Name=~p, Pos=~p", [Name, Pos]),
-    NewFun = lists:flatten(string:replace(Fun, "$" ++ Name, "$" ++ integer_to_list(Pos))),
-    logger:info("NewFun=~p", [NewFun]),
-    rewrite_func_params(Which, ColDict, SelectList, NewFun, Rest);
+    case get_pos(Which, ColDict, SelectList, Name) of
+        -1 ->
+            io:format("    ERROR: Failed to find ~p in column list ~p (~p)~n", [Name, SelectList, Which]),
+            erlang:error(failed_rewrite);
+        Pos ->
+            logger:info("Name=~p, Pos=~p", [Name, Pos]),
+            NewFun = lists:flatten(string:replace(Fun, "$" ++ Name, "$" ++ integer_to_list(Pos))),
+            logger:info("NewFun=~p", [NewFun]),
+            rewrite_func_params(Which, ColDict, SelectList, NewFun, Rest)
+    end;
 rewrite_func_params(Which, ColDict, SelectList, Fun, [{char, 1, Chr} | Rest]) ->
     Name = proto_crudl_utils:to_binary(lists:flatten([Chr])),
-    Pos = get_pos(Which, ColDict, SelectList, Name),
-    logger:info("Name=~p, Pos=~p", [Name, Pos]),
-    NewFun = lists:flatten(string:replace(Fun, "$" ++ Name, "$" ++ integer_to_list(Pos))),
-    logger:info("NewFun=~p", [NewFun]),
-    rewrite_func_params(Which, ColDict, SelectList, NewFun, Rest);
+    case get_pos(Which, ColDict, SelectList, Name) of
+        -1 ->
+            io:format("    ERROR: Failed to find ~p in column list ~p (~p)~n", [Name, SelectList, Which]),
+            erlang:error(failed_rewrite);
+        Pos ->
+            logger:info("Name=~p, Pos=~p", [Name, Pos]),
+            NewFun = lists:flatten(string:replace(Fun, "$" ++ Name, "$" ++ integer_to_list(Pos))),
+            logger:info("NewFun=~p", [NewFun]),
+            rewrite_func_params(Which, ColDict, SelectList, NewFun, Rest)
+    end;
 rewrite_func_params(Which, ColDict, SelectList, Fun, [_H | Rest]) ->
     rewrite_func_params(Which, ColDict, SelectList, Fun, Rest).
 
 get_pos(Which, ColDict, SelectList, Name) ->
     get_pos(Which, ColDict, 1, SelectList, Name).
 
-get_pos(_Which, _ColDict, _Pos, [], Name) ->
-    logger:error("Failed! ~p is not is select clause", [Name]),
-    erlang:error(variable_not_in_select_clause);
+get_pos(_Which, _ColDict, _Pos, [], _Name) ->
+    -1;
 get_pos(_Which, _ColDict, Pos, [Name | _Rest], Name) ->
     Pos;
 get_pos(insert, ColDict, Pos, [Head | Rest], Name) ->

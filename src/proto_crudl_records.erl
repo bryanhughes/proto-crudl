@@ -48,10 +48,12 @@ empty_record(RecordName, Table) ->
     "    " ++ build_empty_record(true, RecordName, Table) ++ ".\n\n".
 
 
-build_empty_record(true, RecordName, #table{select_list = SelectList, default_list = DefaultList}) ->
+build_empty_record(true, RecordName, #table{select_list = SelectList, default_list = DefaultList, columns = ColDict}) ->
     lists:flatten("#" ++ RecordName ++ "{" ++
                   lists:join(", ", [proto_crudl_utils:to_string(C) ++ " = null" || C <- SelectList,
-                                    lists:member(C, DefaultList) == false]) ++ "}");
-build_empty_record(_, RecordName, #table{select_list = SelectList}) ->
+                                    lists:member(C, DefaultList) == false andalso
+                                    proto_crudl_code:is_version(ColDict, C) == false]) ++ "}");
+build_empty_record(_, RecordName, #table{select_list = SelectList, columns = ColDict}) ->
     lists:flatten("#" ++ RecordName ++ "{" ++
-                                       lists:join(", ", [proto_crudl_utils:to_string(C) ++ " = null" || C <- SelectList]) ++ "}").
+                   lists:join(", ", [proto_crudl_utils:to_string(C) ++ " = null" || C <- SelectList,
+                                     proto_crudl_code:is_version(ColDict, C) == false]) ++ "}").
