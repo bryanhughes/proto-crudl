@@ -12,7 +12,7 @@
 -include("proto_crudl.hrl").
 
 %% API
--export([read_database/1, is_int64/1, is_int32/1, is_sql_float/1, read_columns/1, read_table/2,
+-export([read_database/1, is_int64/1, is_int32/1, is_sql_float/1, read_columns/2, read_table/3,
          sql_to_proto_datatype/1, count_params/1, limit_fun/0, read_or_create_fun/1, create_fun/2,
          default_value/1, read_fun/2, update_fun/2, delete_fun/2, mappings_fun/2, list_lookup_fun/2,
          sql_to_erlang_datatype/1, create_defaults_record_fun/4, is_timestamp/1]).
@@ -152,7 +152,11 @@ read_database(Generator = [{schemas, Schemas} | _Rest]) ->
     {ok, dict:dict()} | {error, Reason :: any()}.
 read_schemas(_Generator, [], TablesDict) ->
     {ok, TablesDict};
-read_schemas(Generator = [_, {excluded, Excluded} | _Rest], [Schema | Rest], TablesDict) ->
+read_schemas(Generator, [Schema | Rest], TablesDict) ->
+    Excluded = proplists:get_value(excluded, Generator),
+    Options = proplists:get_value(options, Generator, []),
+    VersionColumn = proplists:get_value(version_column, Options, <<>>),
+    logger:info("Generator=~0p, Options=~0p, VersionCollumn=~p", [Generator, Options, VersionColumn]),
     Excluded1 = [case string:split(FQN, ".") of Parts when length(Parts) == 1 -> FQN; Parts -> lists:nth(2, Parts) end || FQN <- Excluded],
     ExcludedTables1 = ["'" ++ Table ++ "'" || Table <- case Excluded1 of [] -> ["_"]; _ -> Excluded1 end],
     ExcludedTables2 = lists:flatten(lists:join(",", ExcludedTables1)),
@@ -166,7 +170,7 @@ read_schemas(Generator = [_, {excluded, Excluded} | _Rest], [Schema | Rest], Tab
             read_schemas(Generator, Rest, TablesDict);
         #{command := select, rows := Rows} ->
             io:format("Processing ~p tables in schema ~p~n", [length(Rows), Schema]),
-            case process_tables(Rows, TablesDict) of
+            case process_tables(Rows, TablesDict, VersionColumn) of
                 {ok, TablesDict1} ->
                     read_schemas(Generator, Rest, TablesDict1)
             end;
@@ -177,24 +181,24 @@ read_schemas(Generator = [_, {excluded, Excluded} | _Rest], [Schema | Rest], Tab
             {error, Reason}
     end.
 
--spec process_tables(Rows :: list(), dict:dict()) -> {ok, dict:dict()}.
+-spec process_tables(Rows :: list(), dict:dict(), binary()) -> {ok, dict:dict()}.
 %% @doc For each table in the results, this function will read the columns, indexes, and check constraints
-process_tables([], TablesDict) ->
+process_tables([], TablesDict, _VersionColumn) ->
     {ok, TablesDict};
-process_tables([#{table_name := T, table_schema := S} | Rest], TablesDict) ->
+process_tables([#{table_name := T, table_schema := S} | Rest], TablesDict, VersionColumn) ->
     io:format("Table: ~p.~p~n", [S, T]),
-    case read_table(proto_crudl_utils:to_binary(S), proto_crudl_utils:to_binary(T)) of
+    case read_table(proto_crudl_utils:to_binary(S), proto_crudl_utils:to_binary(T), VersionColumn) of
         {ok, Table} ->
             FQN = proto_crudl:make_fqn(Table),
-            process_tables(Rest, dict:store(FQN, Table, TablesDict));
+            process_tables(Rest, dict:store(FQN, Table, TablesDict), VersionColumn);
         {error, Reason} ->
             io:format("    ERROR: Failed to read columns for table ~p.~p. Reason=~p~n", [S, T, Reason]),
             {error, Reason}
     end.
 
--spec read_table(binary(), binary()) -> {ok, #table{}} | {error, Reason :: any()}.
-read_table(Schema, Name) ->
-    case read_columns(#table{name = Name, schema = Schema}) of
+-spec read_table(binary(), binary(), binary()) -> {ok, #table{}} | {error, Reason :: any()}.
+read_table(Schema, Name, VersionColumn) ->
+    case read_columns(#table{name = Name, schema = Schema}, VersionColumn) of
         {ok, T0} ->
             case read_indexes(T0) of
                 {ok, T1} ->
@@ -216,15 +220,15 @@ read_table(Schema, Name) ->
     end.
 
 
--spec read_columns(#table{}) -> {ok, #table{}} | {error, Reason :: any()}.
-read_columns(T0 = #table{name = N, schema = S}) ->
+-spec read_columns(#table{}, binary()) -> {ok, #table{}} | {error, Reason :: any()}.
+read_columns(T0 = #table{name = N, schema = S}, VersionColumn) ->
     case pgo:query(?READ_COLUMNS, [S, N],
                    #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}]}) of
         #{command := select, num_rows := 0, rows := []} ->
             io:format("    INFO: No columns found for table ~p.~p~n", [S, N]),
             {ok, T0};
         #{command := select, rows := Rows} ->
-            case process_columns(T0, Rows) of
+            case process_columns(T0, VersionColumn, Rows) of
                 {ok, T1} ->
                     {ok, T1}
             end;
@@ -234,16 +238,18 @@ read_columns(T0 = #table{name = N, schema = S}) ->
             {error, Reason}
     end.
 
--spec process_columns(Table :: #table{}, Rows :: list()) ->
+-spec process_columns(Table :: #table{}, VersionColumn :: binary(), Rows :: list()) ->
     {ok, #table{}} | {error, Reason :: any()}.
-process_columns(Table, []) ->
+process_columns(Table, _VersionColumn, []) ->
     {ok, Table};
-process_columns(Table, [#{column_name := CN, ordinal_position := OP, data_type := DT, udt_name := UN,
-                          column_default := CD, is_nullable := IN, is_pkey := IP, is_seq := IS} | Rest]) ->
+process_columns(Table, VersionColumn, [#{column_name := CN, ordinal_position := OP, data_type := DT, udt_name := UN,
+                                         column_default := CD, is_nullable := IN, is_pkey := IP,
+                                         is_seq := IS} | Rest]) ->
     IN0 = case IN of <<"YES">> -> true; <<"NO">> -> false end,
+    IsVersion = VersionColumn == CN,
     Col = #column{table_name  = Table#table.name, table_schema = Table#table.schema, name = CN, ordinal_position = OP,
                   data_type   = DT, udt_name = UN, default = CD, is_nullable = IN0, is_pkey = IP,
-                  is_sequence = IS},
+                  is_version = IsVersion, is_sequence = IS},
     ColDict = orddict:store(CN, Col, Table#table.columns),
     PkList = case IP of true -> [CN | Table#table.pkey_list]; _ -> Table#table.pkey_list end,
     Sequence = case IS of true -> CN; _ -> Table#table.sequence end,
@@ -261,12 +267,13 @@ process_columns(Table, [#{column_name := CN, ordinal_position := OP, data_type :
     UpdateList = case IP of false -> [CN | Table#table.update_list]; _ -> Table#table.update_list end,
     process_columns(Table#table{columns        = ColDict,
                                 has_timestamps = HasTimestamps,
+                                version_column = VersionColumn,
                                 select_list    = [CN | Table#table.select_list],
                                 update_list    = UpdateList,
                                 insert_list    = InsertList,
                                 sequence       = Sequence,
                                 pkey_list      = PkList,
-                                default_list   = DefaultList}, Rest).
+                                default_list   = DefaultList}, VersionColumn, Rest).
 
 -spec read_indexes(#table{}) -> {ok, #table{}} | {error, Reason :: any()}.
 read_indexes(T0 = #table{name = N, schema = S}) ->
@@ -1127,9 +1134,9 @@ first_test() ->
     application:set_env(pg_types, uuid_format, string),
     pgo:start_pool(default, #{pool_size => 10,
                               host => "127.0.0.1",
-                              database => "erl_dbmap",
-                              user => "erl_dbmap",
-                              password => "erl_dbmap"}),
+                              database => "proto_crudl",
+                              user => "proto_crudl",
+                              password => "proto_crudl"}),
     ok.
 
 read_database_test() ->
@@ -1164,18 +1171,17 @@ read_database_test() ->
     % Test columns
     {column, <<"user">>, <<"test_schema">>, <<"aka_id">>, 9,
      <<"bigint">>, <<"bigint">>, null, true, false, false,
-     false, false, false, undefined, undefined, undefined,
+     false, false, false, false, undefined, undefined, undefined,
      undefined, []} = orddict:fetch(<<"aka_id">>, Table#table.columns),
 
     {column, <<"user">>, <<"test_schema">>, <<"email">>, 4,
      <<"character varying">>, <<"character varying">>, null, false,
-     false, false, false, false, false, undefined, undefined, undefined,
+     false, false, false, false, false, false, undefined, undefined, undefined,
      undefined, []} = orddict:fetch(<<"email">>, Table#table.columns),
 
     {column, <<"user">>, <<"test_schema">>, <<"user_type">>, 11,
      <<"character varying">>, <<"character varying">>, null, false,
-     false, false, false, false, false, undefined, undefined, undefined,
-     undefined,
+     false, false, false, false, false, false, undefined, undefined, undefined, undefined,
      [<<"123FUN">>, <<"BUSYGAL">>, <<"BUSY_GUY">>, <<"LITTLE-SHOT">>,
       <<"BIG SHOT">>]} = orddict:fetch(<<"user_type">>, Table#table.columns),
 

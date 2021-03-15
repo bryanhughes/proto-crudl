@@ -492,16 +492,24 @@ build_update_sql(Schema, Name, Table) ->
     logger:info(">>>> SelectList=~p", [SelectList]),
 
     ColumnList = orddict:fetch_keys(ColDict),
-    Clause1 = build_update_xforms(ColDict, ColumnList, SelectList, []),
+    {LastPos, Clause1} = build_update_xforms(ColDict, ColumnList, SelectList, 0, []),
     Clause2 = lists:append(Clause, Clause1),
 
     % We need our update to return the record...
     RetClause1 = build_select_clause(SelectList, ColDict, []),
     RetClause2 = build_select_xforms(SelectList, ColDict, []),
 
+    WhereClause = case Table#table.version_column of
+                      <<>> ->
+                          PKColumns1;
+                      VersionColumn ->
+                          lists:append(PKColumns1, [proto_crudl_utils:to_string(VersionColumn) ++ " = $" ++
+                                                    proto_crudl_utils:to_string(LastPos                                                                                                  )])
+                  end,
+
     logger:info("Clause2=~p, PKColumns1=~p", [Clause2, PKColumns1]),
     lists:flatten("UPDATE " ++ proto_crudl_utils:to_string(Schema) ++ "." ++ proto_crudl_utils:to_string(Name) ++
-                   " SET " ++ lists:join(", ", Clause2) ++ " WHERE " ++ lists:join(" AND ", PKColumns1) ++
+                   " SET " ++ lists:join(", ", Clause2) ++ " WHERE " ++ lists:join(" AND ", WhereClause) ++
                    " RETURNING " ++ lists:join(", ", lists:append(RetClause1, RetClause2))).
 
 
@@ -510,29 +518,31 @@ build_update_clause(Cnt, [], _ColDict, ClauseAcc) ->
 build_update_clause(Cnt, [ColumnName | Rest], ColDict, CAcc) ->
     Cname = proto_crudl_utils:to_string(ColumnName),
     Column = orddict:fetch(ColumnName, ColDict),
-    case {Column#column.is_sequence, Column#column.data_type, Column#column.is_pkey} of
-        {true, _, _} ->
+    case {Column#column.is_sequence, Column#column.data_type, Column#column.is_pkey, Column#column.is_version} of
+        {true, _, _, _} ->
             build_update_clause(Cnt, Rest, ColDict, CAcc);
-        {_, _, true} ->
+        {_, _, true, _} ->
             build_update_clause(Cnt, Rest, ColDict, CAcc);
-        {_, <<"virtual">>, _} ->
+        {_, <<"virtual">>, _, _} ->
             build_update_clause(Cnt, Rest, ColDict, CAcc);
-        {_, _, _} ->
+        {_, _, _, true} ->
+            build_update_clause(Cnt + 1, Rest, ColDict, [Cname ++ " = " ++ Cname ++ " + 1"  | CAcc]);
+        {_, _, _, _} ->
             build_update_clause(Cnt + 1, Rest, ColDict, [Cname ++ " = $" ++ integer_to_list(Cnt) | CAcc])
     end.
 
-build_update_xforms(_ColDict, [], _SelectList, Clause) ->
-    lists:reverse(Clause);
-build_update_xforms(ColDict, [ColumnName | Rest], SelectList, Clause) ->
+build_update_xforms(_ColDict, [], _SelectList, Pos, Clause) ->
+    {Pos, lists:reverse(Clause)};
+build_update_xforms(ColDict, [ColumnName | Rest], SelectList, Pos, Clause) ->
     Column = orddict:fetch(ColumnName, ColDict),
     case Column#column.update_xform of
         undefined ->
-            build_update_xforms(ColDict, Rest, SelectList, Clause);
+            build_update_xforms(ColDict, Rest, SelectList, Pos, Clause);
         Operation ->
             % Need to map the columns to the select params
-            NewFun = rewrite_xform_fun(update, ColDict, SelectList, proto_crudl_utils:to_string(Operation)),
+            {NewPos, NewFun} = rewrite_xform_fun(update, ColDict, SelectList, proto_crudl_utils:to_string(Operation)),
             Cname = proto_crudl_utils:to_string(ColumnName),
-            build_update_xforms(ColDict, Rest, SelectList, [Cname ++ " = " ++ NewFun])
+            build_update_xforms(ColDict, Rest, SelectList, NewPos, [Cname ++ " = " ++ NewFun])
     end.
 
 
@@ -594,12 +604,16 @@ build_insert_clause(Cnt, [], _ColDict, ClauseAcc, ParamsAcc) ->
     {Cnt, lists:reverse(ClauseAcc), lists:reverse(ParamsAcc)};
 build_insert_clause(Cnt, [ColumnName | Rest], ColDict, CAcc, PAcc) ->
     Column = orddict:fetch(ColumnName, ColDict),
-    case {Column#column.is_sequence, Column#column.data_type} of
-        {true, _} ->
+    case {Column#column.is_sequence, Column#column.data_type, Column#column.is_version} of
+        {true, _, _} ->
             build_insert_clause(Cnt, Rest, ColDict, CAcc, PAcc);
-        {false, <<"virtual">>} ->
+        {false, <<"virtual">>, _} ->
             build_insert_clause(Cnt, Rest, ColDict, CAcc, PAcc);
-        {false, _} ->
+        {false, _, true} ->
+            build_insert_clause(Cnt, Rest, ColDict, [proto_crudl_utils:to_string(ColumnName) | CAcc],
+                                [proto_crudl_utils:to_string(ColumnName) ++ " = " ++
+                                 proto_crudl_utils:to_string(ColumnName) ++ " + 1" | PAcc]);
+        {false, _, _} ->
             build_insert_clause(Cnt + 1, Rest, ColDict,
                                 [proto_crudl_utils:to_string(ColumnName) | CAcc],
                                 ["$" ++ integer_to_list(Cnt) | PAcc])
@@ -615,7 +629,7 @@ build_insert_xforms(ColDict, [ColumnName | Rest], SelectList, Clause, Params) ->
             build_insert_xforms(ColDict, Rest, SelectList, Clause, Params);
         Operation ->
             % Need to map the columns to the select params
-            NewFun = rewrite_xform_fun(insert, ColDict, SelectList, proto_crudl_utils:to_string(Operation)),
+            {_NewPos, NewFun} = rewrite_xform_fun(insert, ColDict, SelectList, proto_crudl_utils:to_string(Operation)),
             build_insert_xforms(ColDict, Rest, SelectList,
                                 [proto_crudl_utils:to_string(ColumnName) | Clause],
                                 [NewFun | Params])
@@ -703,40 +717,42 @@ handle_mapped_params(ColDict, [CName | Rest], Acc) ->
     end.
 
 
--spec rewrite_xform_fun(update | insert, orddict:dict(), list(), binary()) -> string().
+-spec rewrite_xform_fun(update | insert, orddict:dict(), list(), binary()) -> {integer(), string()}.
 rewrite_xform_fun(Which, ColDict, SelectList, Operator) ->
     case erl_scan:string(Operator) of
         {ok, Tokens, _} ->
             % The expected cases are: [$column, ...], func($column1, ...)], [func()], [func(func($column1, ...))]
             logger:info("Tokens=~0p, SelectList=~0p", [Tokens, SelectList]),
-            rewrite_func_params(Which, ColDict, SelectList, Operator, Tokens);
+            rewrite_func_params(Which, ColDict, SelectList, 0, Operator, Tokens);
         {error, Reason} ->
             io:format("ERROR: Failed to parse transform function. Fun=~p, Reason=~p", [Operator, Reason]),
             failed
     end.
 
 
--spec rewrite_func_params(update | insert, orddict:dict(), list(), string(), list()) -> {integer(), string()}.
-rewrite_func_params(_Which, _ColDict, _SelectList, Fun, []) ->
-    Fun;
-rewrite_func_params(Which, ColDict, SelectList, Fun, [{char, 1, Chr}, {atom, 1, Remaining} | Rest]) ->
+-spec rewrite_func_params(update | insert, orddict:dict(), list(), integer(), string(), list()) -> {integer(), string()}.
+rewrite_func_params(_Which, _ColDict, _SelectList, Pos, Fun, []) ->
+    {Pos + 1, Fun};
+rewrite_func_params(Which, ColDict, SelectList, Pos, Fun, [{char, 1, Chr}, {atom, 1, Remaining} | Rest]) ->
     % We have the parameter name
     Name = proto_crudl_utils:to_binary(lists:flatten([Chr, atom_to_list(Remaining)])),
     % Now find the position in the read list
-    Pos = get_pos(Which, ColDict, SelectList, Name),
-    logger:info("Name=~p, Pos=~p", [Name, Pos]),
-    NewFun = lists:flatten(string:replace(Fun, "$" ++ Name, "$" ++ integer_to_list(Pos))),
-    logger:info("NewFun=~p~n", [NewFun]),
-    rewrite_func_params(Which, ColDict, SelectList, NewFun, Rest);
-rewrite_func_params(Which, ColDict, SelectList, Fun, [{char, 1, Chr} | Rest]) ->
+    P = get_pos(Which, ColDict, SelectList, Name),
+    logger:info("Name=~p, P=~p, Pos=~p", [Name, P, Pos]),
+    NewPos = case P > Pos of true -> P; _ -> Pos end,
+    NewFun = lists:flatten(string:replace(Fun, "$" ++ Name, "$" ++ integer_to_list(P))),
+    logger:info("NewFun=~p, NewPos=~p~n", [NewFun, NewPos]),
+    rewrite_func_params(Which, ColDict, SelectList, NewPos, NewFun, Rest);
+rewrite_func_params(Which, ColDict, SelectList, Pos, Fun, [{char, 1, Chr} | Rest]) ->
     Name = proto_crudl_utils:to_binary(lists:flatten([Chr])),
-    Pos = get_pos(Which, ColDict, SelectList, Name),
-    logger:info("Name=~p, Pos=~p", [Name, Pos]),
-    NewFun = lists:flatten(string:replace(Fun, "$" ++ Name, "$" ++ integer_to_list(Pos))),
-    logger:info("NewFun=~p~n", [NewFun]),
-    rewrite_func_params(Which, ColDict, SelectList, NewFun, Rest);
-rewrite_func_params(Which, ColDict, SelectList, Fun, [_H | Rest]) ->
-    rewrite_func_params(Which, ColDict, SelectList, Fun, Rest).
+    P = get_pos(Which, ColDict, SelectList, Name),
+    logger:info("Name=~p, P=~p, Pos=~p", [Name, P, Pos]),
+    NewPos = case P > Pos of true -> P; _ -> Pos end,
+    NewFun = lists:flatten(string:replace(Fun, "$" ++ Name, "$" ++ integer_to_list(P))),
+    logger:info("NewFun=~p, NewPos=~p~n", [NewFun, NewPos]),
+    rewrite_func_params(Which, ColDict, SelectList, NewPos, NewFun, Rest);
+rewrite_func_params(Which, ColDict, SelectList, Pos, Fun, [_H | Rest]) ->
+    rewrite_func_params(Which, ColDict, SelectList, Pos, Fun, Rest).
 
 get_pos(Which, ColDict, SelectList, Name) ->
     get_pos(Which, ColDict, 1, SelectList, Name).
@@ -750,11 +766,18 @@ get_pos(insert, ColDict, Pos, [Head | Rest], Name) ->
     case orddict:find(Head, ColDict) of
         {ok, #column{is_sequence = true}} ->
             get_pos(insert, ColDict, Pos, Rest, Name);
+        {ok, #column{is_version = true}} ->
+            get_pos(insert, ColDict, Pos, Rest, Name);
         {ok, _} ->
             get_pos(insert, ColDict, Pos + 1, Rest, Name)
     end;
-get_pos(update, ColDict, Pos, [_Head | Rest], Name) ->
-    get_pos(update, ColDict, Pos + 1, Rest, Name).
+get_pos(update, ColDict, Pos, [Head | Rest], Name) ->
+    case orddict:find(Head, ColDict) of
+        {ok, #column{is_version = true}} ->
+            get_pos(insert, ColDict, Pos, Rest, Name);
+        {ok, _} ->
+            get_pos(insert, ColDict, Pos + 1, Rest, Name)
+    end.
 
 
 -spec build_enum_case(#table{}) -> string().
@@ -881,6 +904,63 @@ define_test() ->
     ?LOG_INFO("====================== define_test() END ======================"),
     ok.
 
+% SIDE-EFFECTS FROM ALTERING A TABLE, RUN THIS NEXT TO LAST
+inject_version_test() ->
+    ?LOG_INFO("====================== inject_version_test() START ======================"),
+
+    {ok, Database} = proto_crudl_psql:read_database([{schemas, ["public", "test_schema"]},
+                                                     {excluded, ["public.excluded", "spatial_ref_sys"]}]),
+
+    Configs = [
+        {options, [{version_column, "version"}, indexed_lookups, check_constraints_as_enums]},
+        {transforms, [
+            {"test_schema.user", [
+                % For the select transform, we need to know the datatype of the product of the transform. This is needed for
+                % generating the protobufs
+                {select, [{"lat", "decimal", "ST_Y(geog::geometry)"},
+                          {"lon", "decimal", "ST_X(geog::geometry)"}]},
+                {insert, [{"geog", "geography", "ST_POINT($lon, $lat)::geography"}]},
+                {update, [{"geog", "geography", "ST_POINT($lon, $lat)::geography"}]}]},
+            {"public.foo", [{select, [{"foobar", "integer", "1"}]}]}
+        ]},
+        {exclude_columns, [{"test_schema.user", ["pword_hash", "geog"]}]}],
+
+    {ok, Database1} = proto_crudl:process_configs(Configs, Database),
+    TablesDict = Database1#database.tables,
+    {ok, UserTable} = dict:find(<<"test_schema.user">>, TablesDict),
+
+    SelectList = UserTable#table.select_list,
+    ?LOG_INFO("SelectList=~p", [SelectList]),
+    ?assertEqual([<<"user_id">>,<<"first_name">>,<<"last_name">>,<<"email">>,
+                  <<"user_token">>,<<"enabled">>,<<"aka_id">>,<<"my_array">>,
+                  <<"user_type">>,<<"number_value">>,<<"created_on">>,
+                  <<"updated_on">>,<<"due_date">>,<<"version">>,<<"lat">>,<<"lon">>], SelectList),
+
+    ColumnList = orddict:fetch_keys(UserTable#table.columns),
+    ?LOG_INFO("ColumnList=~p", [ColumnList]),
+    ?assertEqual([<<"aka_id">>,<<"created_on">>,<<"due_date">>,<<"email">>,
+                  <<"enabled">>,<<"first_name">>,<<"geog">>,<<"last_name">>,
+                  <<"lat">>,<<"lon">>,<<"my_array">>,<<"number_value">>,
+                  <<"pword_hash">>,<<"updated_on">>,<<"user_id">>,
+                  <<"user_token">>,<<"user_type">>,<<"version">>], ColumnList),
+
+    Version = orddict:fetch(<<"version">>, UserTable#table.columns),
+    ?assertEqual(true, Version#column.is_version),
+
+    ?assertEqual(<<"version">>, UserTable#table.version_column),
+
+    InsertOutput = build_insert_sql(UserTable#table.schema, UserTable#table.name, UserTable),
+    ?LOG_INFO("InsertOutput=~p~n", [InsertOutput]),
+    InsertAssert = "INSERT INTO test_schema.user (first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, version, geog) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, version = version + 1, ST_POINT($14, $13)::geography) RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, version, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon",
+    ?assertEqual(InsertAssert, InsertOutput),
+
+    UpdateOutput = build_update_sql(UserTable#table.schema, UserTable#table.name, UserTable),
+    ?LOG_INFO("UpdateOutput=~p~n", [UpdateOutput]),
+    UpdateAssert = "UPDATE test_schema.user SET first_name = $2, last_name = $3, email = $4, user_token = $5, enabled = $6, aka_id = $7, my_array = $8, user_type = $9, number_value = $10, created_on = $11, updated_on = $12, due_date = $13, version = version + 1, geog = ST_POINT($15, $14)::geography WHERE user_id = $1 AND version = $16 RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, version, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon",
+    ?assertEqual(UpdateAssert, UpdateOutput),
+
+    ?LOG_INFO("====================== inject_version_test() END ======================"),
+    ok.
 
 cleanup_version([]) ->
     ok;

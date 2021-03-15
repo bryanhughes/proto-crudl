@@ -24,6 +24,7 @@
                  is_virtual = false :: boolean(),
                  is_excluded = false :: boolean(),
                  is_input = false :: boolean(),
+                 is_version = false :: boolean(),
                  select_xform :: binary() | undefined,
                  insert_xform :: binary() | undefined,
                  update_xform :: binary() | undefined,
@@ -87,6 +88,7 @@
                 statements = dict:new() :: dict:dict(),         % Keyed by clause_type
                 has_valid_values = false :: boolean(),
                 has_timestamps = false :: boolean(),
+                version_column = <<>> :: binary(),
                 sequence :: binary() | undefined,
                 select_list = [] :: [binary()],
                 insert_list = [] :: [binary()],
@@ -95,8 +97,8 @@
                 default_list = [] :: [binary()]}).
 
 -record(database, {tables = dict:new() :: dict:dict()}).          % If there are multiple schema's then code will be
-                                                                % generated with the module names prepended with the
-                                                                % schema name, so test_schema.user will become
-                                                                % test_schema_user.
+% generated with the module names prepended with the
+% schema name, so test_schema.user will become
+% test_schema_user.
 
 

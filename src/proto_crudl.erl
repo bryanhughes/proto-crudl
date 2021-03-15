@@ -291,6 +291,7 @@ maybe_inject_version(_ColumnName, [], Database) ->
 maybe_inject_version(ColumnName, [{_Key, T0 = #table{columns = Columns0}} | Rest], Db = #database{tables = TableDict}) ->
     case orddict:find(ColumnName, Columns0) of
         {ok, #column{data_type = <<"bigint">>}} ->
+            logger:info("Found version column ~p on table ~p~p", [ColumnName, T0#table.schema, T0#table.name]),
             io:format("    Found version column ~p on table ~p.~p~n", [ColumnName, T0#table.schema, T0#table.name]),
             maybe_inject_version(ColumnName, Rest, Db);
         {ok, _} ->
@@ -298,21 +299,20 @@ maybe_inject_version(ColumnName, [{_Key, T0 = #table{columns = Columns0}} | Rest
                       [ColumnName, T0#table.schema, T0#table.name]),
             maybe_inject_version(ColumnName, Rest, Db);
         error ->
+            logger:info("Injecting version column ~p on table ~p~p", [ColumnName, T0#table.schema, T0#table.name]),
             io:format("    Injecting version column ~p on table ~p.~p~n", [ColumnName, T0#table.schema, T0#table.name]),
             Alter = "ALTER TABLE " ++ binary_to_list(T0#table.schema) ++ "." ++ binary_to_list(T0#table.name) ++
-                                                                                " ADD COLUMN " ++
-                                                                                binary_to_list(ColumnName) ++ " bigint",
+                    " ADD COLUMN " ++ binary_to_list(ColumnName) ++ " bigint",
             case pgo:query(Alter, [], #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}]}) of
                 #{command := alter, num_rows := table, rows := []} ->
                     % Reread the columns
-                    case proto_crudl_psql:read_table(T0#table.schema, T0#table.name) of
+                    case proto_crudl_psql:read_table(T0#table.schema, T0#table.name, ColumnName) of
                         {ok, T1} ->
                             FQN = make_fqn(T1),
                             maybe_inject_version(ColumnName, Rest, Db#database{tables = dict:store(FQN, T1, TableDict)});
                         {error, Reason} ->
-                            io:format(
-                                "    ERROR: Failed to read columns from table ~p.~p. Reason=~p~n",
-                                [T0#table.schema, T0#table.name, Reason]),
+                            io:format("    ERROR: Failed to read columns from table ~p.~p. Reason=~p~n",
+                                      [T0#table.schema, T0#table.name, Reason]),
                             {error, Reason}
                     end;
                 {error, Reason} ->
@@ -550,37 +550,6 @@ mark_excluded_columns_test() ->
                   <<"updated_on">>, <<"user_id">>, <<"user_token">>, <<"user_type">>], ColumnList),
 
     ?LOG_INFO("====================== mark_excluded_columns_test() END ======================"),
-    ok.
-
-inject_version_test() ->
-    ?LOG_INFO("====================== inject_version_test() START ======================"),
-
-    {ok, Database} = proto_crudl_psql:read_database([{schemas, ["public", "test_schema"]},
-                                                   {excluded, ["public.excluded", "spatial_ref_sys"]}]),
-
-    Configs = [{options, [{version_column, "version"}, indexed_lookups, check_constraints_as_enums]}],
-
-    {ok, Database1} = process_configs(Configs, Database),
-    TablesDict = Database1#database.tables,
-    {ok, UserTable} = dict:find(<<"test_schema.user">>, TablesDict),
-
-    SelectList = UserTable#table.select_list,
-    ?LOG_INFO("SelectList=~p", [SelectList]),
-    ?assertEqual([<<"user_id">>,<<"first_name">>,<<"last_name">>,<<"email">>,
-                  <<"geog">>,<<"pword_hash">>,<<"user_token">>,<<"enabled">>,
-                  <<"aka_id">>,<<"my_array">>,<<"user_type">>,
-                  <<"number_value">>,<<"created_on">>,<<"updated_on">>,
-                  <<"due_date">>,<<"version">>], SelectList),
-
-    ColumnList = orddict:fetch_keys(UserTable#table.columns),
-    ?LOG_INFO("ColumnList=~p", [ColumnList]),
-    ?assertEqual([<<"aka_id">>,<<"created_on">>,<<"due_date">>,<<"email">>,
-                  <<"enabled">>,<<"first_name">>,<<"geog">>,<<"last_name">>,
-                  <<"my_array">>,<<"number_value">>,<<"pword_hash">>,
-                  <<"updated_on">>,<<"user_id">>,<<"user_token">>,
-                  <<"user_type">>,<<"version">>], ColumnList),
-
-    ?LOG_INFO("====================== inject_version_test() END ======================"),
     ok.
 
 cleanup_version([]) ->
