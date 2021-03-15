@@ -37,25 +37,25 @@ crudl_proto_test() ->
     end,
 
     % Do some bad tests against our enum/check constraint
-    BadBryan = (test_schema_user_db:new())#{first_name => <<"Bryan">>, last_name => <<"Hughes">>,
-                                            email => <<"hughesb@gmail.com">>, my_array => [1, 2, 3]},
+    BadBryan = (test_schema_user_db:new_default())#{first_name => <<"Bryan">>, last_name => <<"Hughes">>,
+                                                    email => <<"hughesb@gmail.com">>, my_array => [1, 2, 3]},
     ?LOG_INFO("Creating bad user=~p", [BadBryan]),
     {error, Reason0} = test_schema_user_db:create(BadBryan),
     ?LOG_INFO("Reason=~p", [Reason0]),
 
-    BadBryan1 = (test_schema_user_db:new())#{first_name => <<"Bryan">>, last_name => <<"Hughes">>,
-                                             email => <<"hughesb@gmail.com">>, user_type => 'FOOBAR',
-                                             number_value => 100, created_on => 0, my_array => [1, 2, 3]},
+    BadBryan1 = (test_schema_user_db:new_default())#{first_name => <<"Bryan">>, last_name => <<"Hughes">>,
+                                                     email => <<"hughesb@gmail.com">>, user_type => 'FOOBAR',
+                                                     number_value => 100, created_on => 0, my_array => [1, 2, 3]},
     ?LOG_INFO("Creating bad user=~p", [BadBryan1]),
     {error, Reason1} = test_schema_user_db:create(BadBryan1),
     ?LOG_INFO("Reason=~p", [Reason1]),
 
 
     % Do a good create
-    Bryan = (test_schema_user_db:new())#{first_name => <<"Bryan">>, last_name => <<"Hughes">>,
-                                         email => <<"hughesb@gmail.com">>, user_type => 'BIG_SHOT',
-                                         number_value => 100, created_on => {{2021,2,23},{10,23,23.5}},
-                                         my_array => [1, 2, 3]},
+    Bryan = (test_schema_user_db:new_default())#{first_name => <<"Bryan">>, last_name => <<"Hughes">>,
+                                                 email => <<"hughesb@gmail.com">>, user_type => 'BIG_SHOT',
+                                                 number_value => 100, created_on => {{2021,2,23},{10,23,23.5}},
+                                                 my_array => [1, 2, 3]},
     ?LOG_INFO("Bryan=~p", [Bryan]),
     {ok, Bryan1} = test_schema_user_db:create(Bryan),
     ?LOG_INFO("Bryan1=~p", [Bryan1]),
@@ -73,10 +73,10 @@ crudl_proto_test() ->
     BryanId = maps:get(user_id, Bryan1),
     ?assert(BryanId > 0),
 
-    Tom1 = (test_schema_user_db:new())#{first_name => <<"Tom">>, email => <<"tombagby@gmail.com">>,
-                                        user_type => '_123FUN',
-                                        number_value => 100, created_on => {{2021,2,23},{0,0,0}},
-                                        my_array => [100, 200, 300]},
+    Tom1 = (test_schema_user_db:new_default())#{first_name => <<"Tom">>, email => <<"tombagby@gmail.com">>,
+                                                user_type => '_123FUN',
+                                                number_value => 100, created_on => {{2021,2,23},{0,0,0}},
+                                                my_array => [100, 200, 300]},
     ?LOG_INFO("Creating user=~p", [Tom1]),
     {ok, Tom2} = test_schema_user_db:create(Tom1),
 
@@ -170,6 +170,14 @@ crudl_proto_test() ->
 
     Enum = user_pb:enum_value_by_symbol('test_schema.User.UserType', maps:get(user_type, Bryan7)),
     ?assertEqual(4, Enum),
+
+    % Test our version
+    Bryan8 = Bryan7#{last_name => <<"Bagby">>},
+    {ok, Bryan9} = test_schema_user_db:update(Bryan8),
+    ?assertEqual(<<"Bagby">>, maps:get(last_name, Bryan9)),
+
+    % Try to update it again, should fail by returning no results
+    {ok, []} = test_schema_user_db:update(Bryan8),
 
     %% Do some encoding/decoding
     Encoded = user_pb:encode_msg(test_schema_user_db:to_proto(Bryan7), 'test_schema.User'),

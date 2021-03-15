@@ -563,7 +563,7 @@ cleanup_version([{_Key, T0} | Rest]) ->
         {error, Reason} ->
             io:format("    ERROR: Failed to get alter table ~p.~p. Reason=~p, Stmt=~p~n",
                       [T0#table.schema, T0#table.name, Reason, Alter]),
-            {error, Reason}
+            ok
     end.
 
 last_test() ->
