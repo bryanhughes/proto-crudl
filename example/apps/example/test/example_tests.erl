@@ -12,6 +12,13 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("kernel/include/logger.hrl").
 
+-define(LAT_0, 38.470763).
+-define(LON_0, -123.022557).
+-define(LAT_1, 38.476541).      % 1,767 feet to LAT_0
+-define(LON_1, -123.024377).
+-define(LAT_2, 38.465016).      % 4,307 feet to LAT_0. 1.12 miles to LAT_1
+-define(LON_2, -123.009292).
+
 first_test() ->
     application:ensure_all_started(logger),
     logger:set_primary_config(level, info),
@@ -156,8 +163,10 @@ crudl_proto_test() ->
     ?assertEqual(<<"00000000-0000-0000-0000-000000123345">>, UserToken),
     ?assertEqual(false, maps:get(enabled, Bryan6)),
 
-    {ok, 1, [Result]} = test_schema_user_db:set_token(BryanId),
+    {ok, 1, [Result]} = test_schema_user_db:set_token(BryanId, maps:get(version, Bryan6)),
     SetToken = maps:get(user_token, Result),
+    Version = maps:get(version, Result),
+    ?LOG_INFO("SetToken=~p, Version=~p", [SetToken, Version]),
 
     {ok, Bryan7} = test_schema_user_db:read(#{user_id => BryanId}),
     ?LOG_INFO("Bryan7=~p", [Bryan7]),
@@ -201,5 +210,48 @@ crudl_proto_test() ->
     ?LOG_INFO("====================== crudl_proto_test() END ======================"),
     ok.
 
+custom_query_test() ->
+    ?LOG_INFO("====================== custom_query_test() START ======================"),
+    ?LOG_INFO("Deleting from test_schema.user"),
+
+    Query = "DELETE FROM test_schema.user",
+    case pgo:query(Query, []) of
+        #{command := delete} ->
+            ok;
+        {error, Reason} ->
+            erlang:error(Reason)
+    end,
+
+    Bryan = (test_schema_user_db:new_default())#{first_name => <<"Bryan">>, last_name => <<"Hughes">>,
+                                                 email => <<"hughesb@gmail.com">>, user_type => 'BIG_SHOT',
+                                                 number_value => 100, created_on => {{2021,2,23},{10,23,23.5}},
+                                                 my_array => [1, 2, 3], lat => ?LAT_0, lon => ?LON_0},
+    ?LOG_INFO("Bryan=~p", [Bryan]),
+    {ok, Bryan1} = test_schema_user_db:create(Bryan),
+    ?LOG_INFO("Bryan1=~p", [Bryan1]),
+    ?assertEqual(?LAT_0, maps:get(lat, Bryan1)),
+    ?assertEqual(?LON_0, maps:get(lon, Bryan1)),
+
+    Tom = (test_schema_user_db:new_default())#{first_name => <<"Tom">>, email => <<"tombagby@gmail.com">>,
+                                                user_type => '_123FUN',
+                                                number_value => 100, created_on => {{2021,2,23},{0,0,0}},
+                                                my_array => [100, 200, 300], lat => ?LAT_1, lon => ?LON_1},
+    ?LOG_INFO("Creating user=~p", [Tom]),
+    {ok, Tom1} = test_schema_user_db:create(Tom),
+
+    ?LOG_INFO("Tom1=~p", [Tom1]),
+    ?assertEqual(?LAT_1, maps:get(lat, Tom1)),
+    ?assertEqual(?LON_1, maps:get(lon, Tom1)),
+
+    Result0 = test_schema_user_db:find_nearest(?LON_0, ?LAT_0, 10),
+    ?LOG_INFO("Result0=~p", [Result0]),
+    {ok, 1, [Row]} = Result0,
+    ?assertEqual(<<"hughesb@gmail.com">>, maps:get(email, Row)),
+    ?assertEqual(?LAT_0, maps:get(lat, Row)),
+    ?assertEqual(?LON_0, maps:get(lon, Row)),
+    ?assertEqual(0, maps:get(version, Row)),
+
+    ?LOG_INFO("====================== custom_query_test() END ======================"),
+    ok.
 
 

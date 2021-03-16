@@ -167,12 +167,13 @@ generate_defines(FullPath, S, N, Table) ->
             DeleteStr = build_delete_sql(S, N, Table),
             ok = file:write_file(FullPath, "-define(DELETE, \"" ++ DeleteStr ++ "\").\n\n", [append])
     end,
-    [ok = file:write_file(FullPath, "-define(" ++ proto_crudl_utils:to_string(LookupName) ++ ", \"" ++ LookupStr ++ "\").\n",
+    [ok = file:write_file(FullPath, "-define(" ++ string:to_upper(proto_crudl_utils:to_string(LookupName)) ++
+                                    ", \"" ++ LookupStr ++ "\").\n",
                           [append]) || {LookupName, LookupStr} <- build_lookup_list_sql(Table)],
     ok = file:write_file(FullPath, "\n", [append]),
 
     [ok = file:write_file(FullPath, "-define(" ++ string:to_upper(atom_to_list(FunName)) ++ ", \"" ++
-                                    maybe_expand_all(Table, FunSql) ++ "\").\n",
+                                    maybe_expand_sql(Table, FunSql) ++ "\").\n",
                           [append]) || {FunName, FunSql} <- Table#table.mappings].
 
 
@@ -428,18 +429,6 @@ build_lookup_params(LookupColumns) ->
     Columns = [proto_crudl_utils:camel_case(proto_crudl_utils:to_string(C)) || C <- LookupColumns],
     lists:flatten("[" ++ lists:join(", ", Columns) ++ "]").
 
-
-
-maybe_expand_all(#table{columns = ColDict, select_list = SelectList}, FunSql) ->
-    case string:to_lower(FunSql) of
-        [$s, $e, $l, $e, $c, $t, 32, $*, 32, $f, $r, $o, $m | _Rest] ->
-            Clause1 = build_select_clause(SelectList, ColDict, []),
-            Clause2 = build_select_xforms(SelectList, ColDict, []),
-            ClauseStr = lists:join(", ", lists:append(Clause1, Clause2)),
-            lists:flatten(string:replace(FunSql, "*", ClauseStr));
-        _ ->
-            FunSql
-    end.
 
 %% ---- DELETE ----
 
@@ -818,6 +807,17 @@ build_enum_cases([{_Key, #column{name = N, valid_values = VV}} | Rest], Acc) whe
 build_enum_cases([_Head | Rest], Acc) ->
     build_enum_cases(Rest, Acc).
 
+maybe_expand_sql(#table{columns = ColDict, select_list = SelectList}, Query) ->
+    case string:str(Query, "*") > 0 of
+        true ->
+            Clause1 = build_select_clause(SelectList, ColDict, []),
+            Clause2 = build_select_xforms(SelectList, ColDict, []),
+            Expanded = lists:join(", ", lists:append(Clause1, Clause2)),
+            lists:flatten(string:replace(Query, "*", Expanded));
+        _ ->
+            Query
+    end.
+
 
 %%
 %% Tests
@@ -918,6 +918,11 @@ define_test() ->
     ?LOG_INFO("DeleteOutput=~p~n", [DeleteOutput]),
     DeleteAssert = "DELETE FROM test_schema.user WHERE user_id = $1",
     ?assertEqual(DeleteAssert, DeleteOutput),
+
+    ExpandedOutput = maybe_expand_sql(UserTable, "SELECT * FROM test_schema.user"),
+    ?LOG_INFO("ExpandedOutput=~p", [ExpandedOutput]),
+    ExpandedAssert = "SELECT user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon FROM test_schema.user",
+    ?assertEqual(ExpandedAssert, ExpandedOutput),
 
     ?LOG_INFO("====================== define_test() END ======================"),
     ok.

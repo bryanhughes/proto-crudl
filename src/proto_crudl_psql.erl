@@ -1036,7 +1036,7 @@ list_lookup_fun(undefined, [#index{is_list = true, columns = Columns, name = N} 
     Name = proto_crudl_utils:to_string(N),
     S = Name ++ "(M = " ++ Map ++ ", Limit, Offset) when is_map(M) ->\n"
     "    Params = " ++ Params ++ ",\n"
-    "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
+    "    case pgo:query(?" ++ string:to_upper(Name) ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
     "        #{command := select, num_rows := NRows, rows := Rows} ->\n"
     "            {ok, NRows, Rows};\n"
     "        {error, Reason} ->\n"
@@ -1049,7 +1049,7 @@ list_lookup_fun(undefined, [#index{is_lookup = true, columns = Columns, name = N
     Name = proto_crudl_utils:to_string(N),
     S = Name ++ "(M = " ++ Map ++ ") when is_map(M) ->\n"
     "    Params = " ++ Params ++ ",\n"
-    "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
+    "    case pgo:query(?" ++ string:to_upper(Name) ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
     "        #{command := select, num_rows := NRows, rows := Rows} ->\n"
     "            {ok, NRows, Rows};\n"
     "        {error, Reason} ->\n"
@@ -1062,7 +1062,7 @@ list_lookup_fun(RecordName, [#index{is_list = true, columns = Columns, name = N}
     Name = proto_crudl_utils:to_string(N),
     S = Name ++ "(R = " ++ Record ++ ", Limit, Offset) when is_record(R, " ++ RecordName ++ ") ->\n"
         "    Params = " ++ Params ++ ",\n"
-        "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{return_rows_as_maps, false}, {decode_fun, fun decode_row/2}]}) of\n"
+        "    case pgo:query(?" ++ string:to_upper(Name) ++ ", Params, #{decode_opts => [{return_rows_as_maps, false}, {decode_fun, fun decode_row/2}]}) of\n"
         "        #{command := select, num_rows := NRows, rows := Rows} ->\n"
         "            {ok, NRows, Rows};\n"
         "        {error, Reason} ->\n"
@@ -1075,7 +1075,7 @@ list_lookup_fun(RecordName, [#index{is_lookup = true, columns = Columns, name = 
     Name = proto_crudl_utils:to_string(N),
     S = Name ++ "(R = " ++ Record ++ ") when is_record(R, " ++ RecordName ++ ") ->\n"
         "    Params = " ++ Params ++ ",\n"
-        "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
+        "    case pgo:query(?" ++ string:to_upper(Name) ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
         "        #{command := select, num_rows := NRows, rows := Rows} ->\n"
         "            {ok, NRows, Rows};\n"
         "        {error, Reason} ->\n"
