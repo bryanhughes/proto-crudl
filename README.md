@@ -1,17 +1,18 @@
 # proto-crudl
 ------
-An escript that generates protobuffers that map to your releational database, as well as all the Erlang code to 
-handles Create, Read, Update, Delete, and List/Lookup (CRUDL) to and from the protobuffers either as maps or records.
-The tool supports the Erlang `gpb` library, though not required. It also only currently support Postgres. 
+An escript that generates protobuffers and Erlang CRUDL (Create, Read, Update, Delete, List/Lookup) based on your
+relational data model. The tool will generate code that supports either records or maps. The tool supports the 
+Erlang [gpb](https://github.com/tomas-abrahamsson/gpb) library, though not required. It also only currently support Postgres. 
 
 Aside from simple CRUDL, this tool allows you to generate functions based on any standard SQL query, lookups, and
-transformations. The custom mappings and transformations are very powerful.
+transformations. The custom mappings and transformations are very powerful. 
 
 Please look at the `example` directory to an example schema and configuration file to generate not just simple
-CRUD, but search/lookup operations based on indexed fields, as well as custom mapping queries. 
+CRUD, but search/lookup operations based on indexed fields, as well as custom mapping queries including how to use
+transformations to work with PostGis where you want to tranform lat/lon to geography columns. 
 
 # Installing Erlang
-Make sure you have Erlang/OTP 23 installed. 
+Make sure you have a minimum of Erlang/OTP 23 installed. Currently, this has only been tested on MacOS.
 
 ## Mac OS X
 Using Homebrew:
@@ -123,6 +124,13 @@ or directly
 
     _build/default/bin/proto_crudl <config>
 
+Test
+----
+Several of the eunit tests rely on the presence of the example database. Unfortunately unit and functional tests are
+currently commingled.
+
+    rebar3 eunit
+
 
 ## Building the Example
 The project includes an example schema and scripts to build located in the `example` directory. You
@@ -130,7 +138,7 @@ will find the build scripts in `example/bin` to create or reset the example data
 the code in the example schema, which is located in `example/database`. The schema was generated using [DbSchema](https://www.dbschema.com/).
 
 **PLEASE NOTE:** You will see errors and warnings in the output. This is intentional as the example schema includes a
-lot of corner cases, like a table without a primary key.
+lot of corner cases, like a table without a primary key and unsupported postgres types.
 
 ## Running the eunit tests
 The eunit tests are inline with the code at the end of the modules. Several of them expect that proto_crudl database
@@ -138,18 +146,21 @@ from the example directory to have been built.
 
     rebar3 eunit
     
-You can run the eunit tests again after your generate the example code to then test the generated code `user_db` against the
-`user` table to make sure everything works.
-    
 ## Testing the Generated Code    
-Please note that there are two eunit tests which will test the generated code. They are located in 
-`example/apps/test/example_test.erl` and do full CRUDL test.
+The example code also contains some tests that tests the results of the generated code. To run these tests They 
+are located in `example/apps/test/example_test.erl` and do full CRUDL test.
+
+    cd example
+    rebar3 eunit
+
+
+Please refer to these test to better understand how to use the generated code.
     
 Using proto_crudl
 ---
-Include this as a dependency in your `rebar.config`. I would recommend that you copy the script
-`generate_code.sh` to your project and modify accordingly. You will need to run this the first time, and
-any other time you alter your database schema. 
+Currently, I have not had time to write a github pull script for the `escript` executable 
+artifact: `_build/default/bin/proto_crudl`. At this time I manually copy the file to my project. So not build friendly
+just yet.
 
 # proto_crudl.config
 You will want to look at [example/config/proto_crudl.config](example/config/proto_crudl.config) as a guide
@@ -164,8 +175,8 @@ or need to apply other functions, you will need to use this feature.
 ```
 {transforms, [
     {"test_schema.user", [
-        {insert, [{"geog", "ST_POINT($lat, $lon)::geography"}]},
-        {update, [{"geog", "ST_POINT($lat, $lon)::geography"}]},
+        {insert, [{"geog", "ST_POINT($lon, $lat)::geography"}]},
+        {update, [{"geog", "ST_POINT($lon, $lat)::geography"}]},
         {select, [{"lat", "ST_Y(geog::geometry)"},
                   {"lon", "ST_X(geog::geometry)"}]}]},
     {"public.foo", [
@@ -182,12 +193,12 @@ result in the extension function `ST_POINT($lat, $lon)::geography` to be applied
 statement. Resulting in the following code:
 
 ```erlang
--define(INSERT, "INSERT INTO test_schema.user (first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, version, geog) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, ST_POINT($14, $15)::geography) RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, version, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon").
+-define(INSERT, "INSERT INTO test_schema.user (first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, version, geog) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 0, ST_POINT($14, $13)::geography) RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, version, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon").
 ```
 and
 ```
-create(M = #{lon := Lon, lat := Lat, version := Version, due_date := DueDate, updated_on := UpdatedOn, created_on := CreatedOn, number_value := NumberValue, user_type := UserType, my_array := MyArray, aka_id := AkaId, enabled := Enabled, user_token := UserToken, email := Email, last_name := LastName, first_name := FirstName}) when is_map(M) ->
-    Params = [FirstName, LastName, Email, UserToken, Enabled, AkaId, MyArray, user_type_value(UserType), NumberValue, ts_decode_map(CreatedOn), ts_decode_map(UpdatedOn), DueDate, Version, Lat, Lon],
+create(M = #{lon := Lon, lat := Lat, due_date := DueDate, updated_on := UpdatedOn, created_on := CreatedOn, number_value := NumberValue, user_type := UserType, my_array := MyArray, aka_id := AkaId, enabled := Enabled, user_token := UserToken, email := Email, last_name := LastName, first_name := FirstName}) when is_map(M) ->
+    Params = [FirstName, LastName, Email, UserToken, Enabled, AkaId, MyArray, user_type_value(UserType), NumberValue, ts_decode_map(CreatedOn), ts_decode_map(UpdatedOn), DueDate, Lat, Lon],
     case pgo:query(?INSERT, Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of
         #{command := insert, num_rows := 0} ->
             {error, failed_to_insert};
@@ -198,8 +209,8 @@ create(M = #{lon := Lon, lat := Lat, version := Version, due_date := DueDate, up
         {error, Reason} ->
             {error, Reason}
     end;
-create(M = #{lon := Lon, lat := Lat, version := Version, due_date := DueDate, updated_on := UpdatedOn, created_on := CreatedOn, number_value := NumberValue, user_type := UserType, my_array := MyArray, aka_id := AkaId, email := Email, last_name := LastName, first_name := FirstName}) when is_map(M) ->
-    Params = [FirstName, LastName, Email, AkaId, MyArray, user_type_value(UserType), NumberValue, ts_decode_map(CreatedOn), ts_decode_map(UpdatedOn), DueDate, Version, Lat, Lon],
+create(M = #{lon := Lon, lat := Lat, due_date := DueDate, updated_on := UpdatedOn, created_on := CreatedOn, number_value := NumberValue, user_type := UserType, my_array := MyArray, aka_id := AkaId, email := Email, last_name := LastName, first_name := FirstName}) when is_map(M) ->
+    Params = [FirstName, LastName, Email, AkaId, MyArray, user_type_value(UserType), NumberValue, ts_decode_map(CreatedOn), ts_decode_map(UpdatedOn), DueDate, Lat, Lon],
     case pgo:query(?INSERT_DEFAULTS, Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of
         #{command := insert, num_rows := 0} ->
             {error, failed_to_insert};
@@ -217,16 +228,21 @@ create(_M) ->
 I would recommend that you build the example project and then review the generated code for `test_schema_user_db.erl` to get a better
 understanding.
 
-## The special change_id column
-The proto_crudl framework implements all the necessary code to support tracking changes to a table that has a column called 
-`version`. When a table has this column, proto_crudl will generate code that will automatically handle updating the 
-column value on a good update, as well as guard against updating the table from a stale map. If the current value of
-`version` is `100` and you attempt to update using a map that has the change_id value of 90, the update will return
-with `not_found`, otherwise update returns `{ok, Map}`.
+## The special version column
+The proto_crudl framework implements all the necessary code to support tracking changes to a table that with a version column. 
 
-In our example database, the `user` table has a column named `change_id`. 
+    {options, [{version_column, "version"}, indexed_lookups, check_constraints_as_enums]},
+
+In this example, the column is called `version`. When a table has this column, proto_crudl will generate code that will 
+automatically handle updating the column value on a good update, as well as guard against updating the table from a 
+stale map. If the current value of `version` is `100` and you attempt to update using a map that has the version value 
+of 90, the update will return with `notfound`, otherwise update returns `{ok, Map}`.
+
+If the column is not present, the tool will automatically inject the column into the table by performing an `ALERT TABLE ...`
+
+In our example database, the `user` table has a column named `version`. 
 ```
--define(UPDATE, "UPDATE test_schema.user SET first_name = $2, last_name = $3, email = $4, user_token = $5, enabled = $6, aka_id = $7, my_array = $8, user_type = $9, number_value = $10, created_on = $11, updated_on = $12, due_date = $13, version = $14, geog = ST_POINT($15, $16)::geography WHERE user_id = $1 RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, version, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon").
+-define(UPDATE, "UPDATE test_schema.user SET first_name = $2, last_name = $3, email = $4, user_token = $5, enabled = $6, aka_id = $7, my_array = $8, user_type = $9, number_value = $10, created_on = $11, updated_on = $12, due_date = $13, version = version + 1, geog = ST_POINT($16, $15)::geography WHERE user_id = $1 AND version = $14 RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, version, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon").
 ```
 
 This results in the following code generation and logic for UPDATES. Please note that the INSERT sql and code is also different.
@@ -235,7 +251,7 @@ update(M = #{lon := Lon, lat := Lat, version := Version, due_date := DueDate, up
     Params = [UserId, FirstName, LastName, Email, UserToken, Enabled, AkaId, MyArray, user_type_value(UserType), NumberValue, ts_decode_map(CreatedOn), ts_decode_map(UpdatedOn), DueDate, Version, Lat, Lon],
     case pgo:query(?UPDATE, Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of
         #{command := update, num_rows := 0} ->
-            not_found;
+            notfound;
         #{command := update, num_rows := 1, rows := [Row]} ->
             {ok, Row};
         {error, Reason} ->
@@ -251,7 +267,7 @@ Finally, `proto_crudl` uses [erleans/pgo](https://github.com/erleans/pgo) for it
 the only supported database. If you want the pgo client to return UUID as binary strings, set an application environment
 variable or in your sys.config:
 
-    {pg_types, {uuid, string}},
+    {pg_types, [{uuid_format, string}]},
 
     {pgo, [{pools, [{default, #{pool_size => 10,
                                 host => "127.0.0.1",
@@ -280,12 +296,20 @@ languages such as Java, Objective-C, or even Go. If you are new to protocol buff
 
 It is important to note that the default configuration is to use `gpb` to compile and support protobuffers in Erlang.
 
+PLEASE NOTE: There is a bug that has been filed in `gpb` where protos of the same name in different packages will get 
+overwritten since there is no namespacing.
+
 Using In Your Project
 ---
-You will need to include the deps in your `rebar.config`:
+You will need to copy the `proto_crudl` escript to your project.
 
-    {proto_crudl, {git, "https://github.com/bryanhughes/proto_crudl.git", {branch, "master"}}},
+Next, create your `proto_crudl.config`. You can simply copy and modify the one in the repo. Currently, I have a manual
+generate script that I locate in the top level `bin` directory:
 
-Next, create your `proto_crudl.config`. You can simply copy and modify the one in the repo. Also, copy and rename
-the `example/bin/generate_example.sh` and move it into your `bin` or other directory. Run it once to generate the 
-code and protos, and any other time you modify your schema.
+```
+#!/usr/bin/env bash
+
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+
+"$DIR"/proto_crudl "$DIR"/../config/proto_crudl.config
+```
