@@ -67,37 +67,8 @@ build_row_assigns([{_Key, #column{name = N, udt_name = <<116, 105, 109, 101, 115
 build_row_assigns([_Head | Rest], Acc) ->
     build_row_assigns(Rest, Acc).
 
-to_from_proto() ->
-    "from_proto(Map) ->\n"
-    "    maps:merge(new(), Map).\n\n"
-    "to_proto(Map) when is_map(Map) ->\n"
-    "    maps:fold(fun(_Key, null, AccIn) -> AccIn;\n"
-    "             (Key, Value, AccIn) when is_list(Value) -> AccIn#{Key => [to_proto(V) || V <- Value]};\n"
-    "             (Key, Value, AccIn) when is_map(Value) -> AccIn#{Key => to_proto(Value)};\n"
-    "             (Key, Value, AccIn) -> AccIn#{Key => Value}\n"
-    "          end, #{}, Map);\n"
-    "to_proto(Value) ->\n"
-    "    Value.\n\n".
 
-empty_map(Table) ->
-    "new() ->\n"
-    "    " ++ build_empty_map(false, Table) ++ ".\n\n"
-    "new_default() ->\n"
-    "    " ++ build_empty_map(true, Table) ++ ".\n\n".
-
-build_empty_map(true, Table) ->
-    ColDict = Table#table.columns,
-    ColumnList = lists:reverse(Table#table.select_list),
-    lists:flatten("#{" ++ lists:join(", ", [proto_crudl_utils:to_string(C) ++ " => null" || C <- ColumnList,
-                                            lists:member(C, Table#table.default_list) == false andalso
-                                            proto_crudl_code:is_version(ColDict, C) == false]) ++ "}");
-build_empty_map(_, Table) ->
-    ColDict = Table#table.columns,
-    ColumnList = lists:reverse(Table#table.select_list),
-    lists:flatten("#{" ++ lists:join(", ", [proto_crudl_utils:to_string(C) ++ " => null" || C <- ColumnList,
-                                            proto_crudl_code:is_version(ColDict, C) == false]) ++ "}").
-
-
+-spec ts_support([{binary(), #column{}}]) -> string().
 ts_support([]) ->
     "";
 ts_support([{_Key, #column{udt_name = UN}} | Rest]) ->
@@ -130,3 +101,33 @@ ts_support([{_Key, #column{udt_name = UN}} | Rest]) ->
             "add_usecs(Secs, USecs) ->\n"
             "    Secs + (USecs / 1000000).\n\n"
     end.
+
+to_from_proto() ->
+    "from_proto(Map) ->\n"
+    "    maps:merge(new(), Map).\n\n"
+    "to_proto(Map) when is_map(Map) ->\n"
+    "    maps:fold(fun(_Key, null, AccIn) -> AccIn;\n"
+    "             (Key, Value, AccIn) when is_list(Value) -> AccIn#{Key => [to_proto(V) || V <- Value]};\n"
+    "             (Key, Value, AccIn) when is_map(Value) -> AccIn#{Key => to_proto(Value)};\n"
+    "             (Key, Value, AccIn) -> AccIn#{Key => Value}\n"
+    "          end, #{}, Map);\n"
+    "to_proto(Value) ->\n"
+    "    Value.\n\n".
+
+empty_map(Table) ->
+    "new() ->\n"
+    "    " ++ build_empty_map(false, Table) ++ ".\n\n"
+    "new_default() ->\n"
+    "    " ++ build_empty_map(true, Table) ++ ".\n\n".
+
+build_empty_map(true, Table) ->
+    ColDict = Table#table.columns,
+    ColumnList = lists:reverse(Table#table.select_list),
+    lists:flatten("#{" ++ lists:join(", ", [proto_crudl_utils:to_string(C) ++ " => null" || C <- ColumnList,
+                                            lists:member(C, Table#table.default_list) == false andalso
+                                            proto_crudl_code:is_version(ColDict, C) == false]) ++ "}");
+build_empty_map(_, Table) ->
+    ColDict = Table#table.columns,
+    ColumnList = lists:reverse(Table#table.select_list),
+    lists:flatten("#{" ++ lists:join(", ", [proto_crudl_utils:to_string(C) ++ " => null" || C <- ColumnList,
+                                            proto_crudl_code:is_version(ColDict, C) == false]) ++ "}").

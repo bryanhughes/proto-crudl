@@ -197,10 +197,10 @@ generate_enum_helpers(_FullPath, []) ->
     ok;
 generate_enum_helpers(FullPath, [{_Key, #column{name = Name, valid_values = VV}} | Rest]) when length(VV) > 0 ->
     ok = file:write_file(FullPath, io_lib:format("\n~s_enum(Value) ->\n", [Name]), [append]),
-    ok = file:write_file(FullPath, io_lib:format("    maps:get(Value, ?~s_VALUES, undefined).\n", [proto_crudl_utils:camel_case(Name)]), [append]),
+    ok = file:write_file(FullPath, io_lib:format("    maps:get(Value, ?~s_VALUES, null).\n", [proto_crudl_utils:camel_case(Name)]), [append]),
 
     ok = file:write_file(FullPath, io_lib:format("\n~s_value(Enum) ->\n", [Name]), [append]),
-    ok = file:write_file(FullPath, io_lib:format("    maps:get(Enum, ?~s_ENUMS, undefined).\n", [proto_crudl_utils:camel_case(Name)]), [append]),
+    ok = file:write_file(FullPath, io_lib:format("    maps:get(Enum, ?~s_ENUMS, null).\n", [proto_crudl_utils:camel_case(Name)]), [append]),
     generate_enum_helpers(FullPath, Rest);
 generate_enum_helpers(FullPath, [_Head | Rest]) ->
     generate_enum_helpers(FullPath, Rest).
@@ -817,7 +817,6 @@ maybe_expand_sql(#table{columns = ColDict, select_list = SelectList}, Query) ->
         _ ->
             Query
     end.
-
 
 %%
 %% Tests

@@ -313,3 +313,6 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
 "$DIR"/proto_crudl "$DIR"/../config/proto_crudl.config
 ```
+
+### Using the Maps Option
+`proto_crutl` supports code generation using both maps and records. 
