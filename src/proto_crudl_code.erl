@@ -13,7 +13,7 @@
 -export([generate/3, build_insert_map/1, build_insert_params/1, build_select_map/1, build_select_params/1,
          build_update_map/1, build_update_params/1, build_delete_map/1, build_delete_params/1,
          build_lookup_list_map/2, build_list_params/1, build_lookup_params/1, build_update_record/2,
-         build_insert_record/2, build_select_record/2, build_delete_record/2, build_enum_case/1, is_version/2]).
+         build_insert_record/2, build_select_record/2, build_delete_record/2, build_enum_case/1, is_version/2, maybe_expand_sql/2]).
 
 -include("proto_crudl.hrl").
 
@@ -84,7 +84,7 @@ generate_sources(Provider, SourcePath, Suffix, UseRecords, UsePackage, UseGpb, D
         _ ->
             io:format("~p (using_maps)~n", [FullPath]),
             generate_exports(use_maps, FullPath, Table),
-            proto_crutl_maps:generate_functions(Provider, FullPath, Table)
+            proto_crudl_maps:generate_functions(Provider, FullPath, Table)
     end,
 
     % Generate enum helpers
@@ -174,7 +174,7 @@ generate_defines(FullPath, S, N, Table) ->
 
     [ok = file:write_file(FullPath, "-define(" ++ string:to_upper(atom_to_list(FunName)) ++ ", \"" ++
                                     maybe_expand_sql(Table, FunSql) ++ "\").\n",
-                          [append]) || {FunName, FunSql} <- Table#table.mappings].
+                          [append]) || {FunName, #custom_query{query = FunSql}} <- Table#table.mappings].
 
 
 -spec generate_enums(string(), list({binary(), #column{}})) -> string().
@@ -249,7 +249,7 @@ generate_exports(RecordsOrMaps, FullPath, Table) ->
     end,
 
     case ["         " ++ atom_to_list(FunName) ++ "/" ++ integer_to_list(proto_crudl_psql:count_params(FunSql))
-          || {FunName, FunSql} <- Table#table.mappings] of
+          || {FunName, #custom_query{query = FunSql}} <- Table#table.mappings] of
         [] ->
             ok;
         Mappings ->
@@ -477,9 +477,6 @@ build_update_sql(Schema, Name, Table) ->
 
     {_Cnt, Clause} = build_update_clause(Cnt, UpdateList, ColDict, []),
 
-    logger:info(">>>> UpdateList=~p", [UpdateList]),
-    logger:info(">>>> SelectList=~p", [SelectList]),
-
     ColumnList = orddict:fetch_keys(ColDict),
     Clause1 = build_update_xforms(ColDict, ColumnList, SelectList, []),
     Clause2 = lists:append(Clause, Clause1),
@@ -574,9 +571,6 @@ build_insert_sql(S, N, Table) ->
 
     % Now add the insert transforms
     ColumnList = orddict:fetch_keys(ColDict),
-    logger:info(">>>> ColumnList=~p", [ColumnList]),
-    logger:info(">>>> SelectList=~p", [SelectList]),
-    logger:info(">>>> InsertList=~p", [InsertList]),
 
     {Clause1, Params1} = build_insert_xforms(ColDict, ColumnList, InsertList, [], []),
 

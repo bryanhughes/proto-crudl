@@ -13,9 +13,9 @@
 
 %% API
 -export([read_database/1, is_int64/1, is_int32/1, is_sql_float/1, read_columns/2, read_table/3,
-         sql_to_proto_datatype/1, count_params/1, limit_fun/0, read_or_create_fun/1, create_fun/2,
+         sql_to_proto_datatype/1, count_params/1, limit_fun/1, read_or_create_fun/1, create_fun/2,
          default_value/1, read_fun/2, update_fun/2, delete_fun/2, mappings_fun/2, list_lookup_fun/2,
-         sql_to_erlang_datatype/1, create_defaults_record_fun/4, is_timestamp/1]).
+         sql_to_erlang_datatype/1, create_defaults_record_fun/4, is_timestamp/1, random_value/1, read_temp_view/0]).
 
 -define(READ_TABLES, "SELECT
         t.table_schema,
@@ -121,6 +121,19 @@
         AND ccu.table_schema = $1
         AND ccu.table_name = $2").
 
+-define(READ_TEMP_VIEW, "SELECT
+  vcu.column_name,
+  c.data_type,
+  c.udt_name::regtype::text
+FROM
+  information_schema.view_column_usage vcu
+  JOIN information_schema.columns c ON
+    c.table_schema = vcu.table_schema AND
+    c.table_name = vcu.table_name AND
+    c.column_name = vcu.column_name
+WHERE
+  vcu.view_name = 'proto_crudl_desc'").
+
 -define(MONEY, <<"money">>).
 -define(FLOAT, <<"float">>).
 -define(NUMERIC, <<"numeric">>).
@@ -218,7 +231,6 @@ read_table(Schema, Name, VersionColumn) ->
             io:format("    ERROR: Failed to read columns for table ~p.~p. Reason=~p~n", [Schema, Name, Reason]),
             {error, Reason}
     end.
-
 
 -spec read_columns(#table{}, binary()) -> {ok, #table{}} | {error, Reason :: any()}.
 read_columns(T0 = #table{name = N, schema = S}, VersionColumn) ->
@@ -377,9 +389,8 @@ process_relationships(Rel, S, T, [#{foreign_schema := FS, foreign_table := FT, f
 
 -spec read_constraints(#table{}) -> {ok, #table{}} | {error, Reason :: any()}.
 read_constraints(T0 = #table{name = N, schema = S}) ->
-    case pgo:query(
-        ?READ_CHECK_CONSTRAINTS, [S, N],
-        #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}]}) of
+    case pgo:query(?READ_CHECK_CONSTRAINTS, [S, N], #{decode_opts => [{return_rows_as_maps, true},
+                                                                      {column_name_as_atom, true}]}) of
         #{command := select, num_rows := 0, rows := []} ->
             io:format("    INFO: No check contraints found for table ~p.~p~n", [S, N]),
             {ok, T0};
@@ -442,6 +453,19 @@ parse_constraints(in_array, [{atom, 1, Value} | Rest], ValidValues) ->
     end;
 parse_constraints(State, [_Head | Rest], ValidValues) ->
     parse_constraints(State, Rest, ValidValues).
+
+read_temp_view() ->
+    case pgo:query(?READ_TEMP_VIEW, [], #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}]}) of
+        #{command := select, num_rows := 0, rows := []} ->
+            io:format("    INFO: No columns found for temporary view.~n", []),
+            {ok, []};
+        #{command := select, rows := Rows} ->
+            {ok, Rows};
+        {error, Reason} ->
+            io:format("    ERROR: Failed to get columns for temporary view. Reason=~p, Stmt=~p~n",
+                      [Reason, ?READ_TEMP_VIEW]),
+            {error, Reason}
+    end.
 
 
 -spec is_int64(binary()) -> boolean().
@@ -716,6 +740,24 @@ count_params([{char, 1, Counter} | Rest], Set) ->
 count_params([_E | Rest], Set) ->
     count_params(Rest, Set).
 
+-spec random_value(atom()) -> any().
+random_value(string) ->
+    <<"Hello world!">>;
+random_value(integer) ->
+    23;
+random_value(float) ->
+    2.3;
+random_value(double) ->
+    23.2;
+random_value(binary) ->
+    <<"deadbeef">>;
+random_value(boolean) ->
+    true;
+random_value(Type) ->
+    logger:error("Unsupported type: ~p", [Type]),
+    io:format("ERROR: Unsupported type: ~p", [Type]),
+    erlang:error(unsupported_type).
+
 
 -spec default_value(string()) -> any().
 default_value(<<"bigint">>) ->
@@ -825,7 +867,7 @@ create_fun(undefined, Table) ->
     {Param, DParam} = proto_crudl_code:build_insert_params(Table),
     "create(M = " ++ Map ++ ") when is_map(M) ->\n" ++
     "    Params = " ++ Param ++ ",\n"
-    "    case pgo:query(?INSERT, Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
+    "    case pgo:query(?INSERT, Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := insert, num_rows := 0} ->\n"
     "            {error, failed_to_insert};\n"
     "        #{command := insert, num_rows := 1, rows := [Row]} ->\n"
@@ -843,7 +885,7 @@ create_fun(RecordName, Table = #table{default_list = DL}) ->
     {Param, DParam} = proto_crudl_code:build_insert_params(Table),
     Str = "create(R = " ++ Record ++ ") when is_record(R, " ++ RecordName ++ ") ->\n" ++
     "    Params = " ++ Param ++ ",\n"
-    "    case pgo:query(?INSERT, Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
+    "    case pgo:query(?INSERT, Params, #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := insert, num_rows := 0} ->\n"
     "            {error, failed_to_insert};\n"
     "        #{command := insert, num_rows := 1, rows := [Row]} ->\n"
@@ -865,7 +907,7 @@ create_defaults_map_fun(#table{default_list = DL}, _DMap, _DParam) when length(D
 create_defaults_map_fun(_Table, DMap, DParam) ->
     "create(M = " ++ DMap ++ ") when is_map(M) ->\n" ++
     "    Params = " ++ DParam ++ ",\n"
-    "    case pgo:query(?INSERT_DEFAULTS, Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
+    "    case pgo:query(?INSERT_DEFAULTS, Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := insert, num_rows := 0} ->\n"
     "            {error, failed_to_insert};\n"
     "        #{command := insert, num_rows := 1, rows := [Row]} ->\n"
@@ -881,7 +923,7 @@ create_defaults_record_fun(#table{default_list = DL}, _RecordName, _DRecord, _DP
 create_defaults_record_fun(_Table, RecordName, DRecord, DParam) ->
     "create(R = " ++ DRecord ++ ") when is_record(R, " ++ RecordName ++ ") ->\n" ++
     "    Params = " ++ DParam ++ ",\n"
-    "    case pgo:query(?INSERT_DEFAULTS, Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
+    "    case pgo:query(?INSERT_DEFAULTS, Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := insert, num_rows := 0} ->\n"
     "            {error, failed_to_insert};\n"
     "        #{command := insert, num_rows := 1, rows := [Row]} ->\n"
@@ -924,7 +966,7 @@ read_fun(undefined, Table) ->
     Params = proto_crudl_code:build_select_params(Table),
     "read(M = " ++ Map ++ ") when is_map(M) ->\n"
     "    Params = " ++ Params ++ ",\n"
-    "    case pgo:query(?SELECT, Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
+    "    case pgo:query(?SELECT, Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := select, num_rows := 0} ->\n"
     "            notfound;\n"
     "        #{command := select, num_rows := 1, rows := [Row]} ->\n"
@@ -939,7 +981,7 @@ read_fun(RecordName, Table) ->
     Params = proto_crudl_code:build_select_params(Table),
     "read(R = " ++ Record ++ ") when is_record(R, " ++ RecordName ++ ") ->\n"
     "    Params = " ++ Params ++ ",\n"
-    "    case pgo:query(?SELECT, Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
+    "    case pgo:query(?SELECT, Params, #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := select, num_rows := 0} ->\n"
     "            notfound;\n"
     "        #{command := select, num_rows := 1, rows := [Row]} ->\n"
@@ -956,7 +998,7 @@ update_fun(undefined, Table) ->
     Params = proto_crudl_code:build_update_params(Table),
     "update(M = " ++ Map ++ ") when is_map(M) ->\n" ++
     "    Params = " ++ Params ++ ",\n"
-    "    case pgo:query(?UPDATE, Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
+    "    case pgo:query(?UPDATE, Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := update, num_rows := 0} ->\n"
     "            notfound;\n"
     "        #{command := update, num_rows := 1, rows := [Row]} ->\n"
@@ -971,7 +1013,7 @@ update_fun(RecordName, Table) ->
     Params = proto_crudl_code:build_update_params(Table),
     "update(R = " ++ Record ++ ") when is_record(R, " ++ RecordName ++ ") ->\n" ++
     "    Params = " ++ Params ++ ",\n"
-    "    case pgo:query(?UPDATE, Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
+    "    case pgo:query(?UPDATE, Params, #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := update, num_rows := 0} ->\n"
     "            notfound;\n"
     "        #{command := update, num_rows := 1, rows := [Row]} ->\n"
@@ -1014,10 +1056,18 @@ delete_fun(RecordName, Table) ->
     "delete(_M) ->\n"
     "    {error, invalid_record}.\n\n".
 
--spec limit_fun() -> string().
-limit_fun() ->
+-spec limit_fun(string() | undefined) -> string().
+limit_fun(undefined) ->
     "list(Limit, Offset) ->\n"
-    "    case pgo:query(?SELECT_WITH_LIMIT, [Limit, Offset], #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
+    "    case pgo:query(?SELECT_WITH_LIMIT, [Limit, Offset], #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
+    "        #{command := select, num_rows := NRows, rows := Rows} ->\n"
+    "            {ok, NRows, Rows};\n"
+    "        {error, Reason} ->\n"
+    "            {error, Reason}\n"
+    "    end.\n\n";
+limit_fun(RecordName) ->
+    "list(Limit, Offset) ->\n"
+    "    case pgo:query(?SELECT_WITH_LIMIT, [Limit, Offset], #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := select, num_rows := NRows, rows := Rows} ->\n"
     "            {ok, NRows, Rows};\n"
     "        {error, Reason} ->\n"
@@ -1036,7 +1086,7 @@ list_lookup_fun(undefined, [#index{is_list = true, columns = Columns, name = N} 
     Name = proto_crudl_utils:to_string(N),
     S = Name ++ "(M = " ++ Map ++ ", Limit, Offset) when is_map(M) ->\n"
     "    Params = " ++ Params ++ ",\n"
-    "    case pgo:query(?" ++ string:to_upper(Name) ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
+    "    case pgo:query(?" ++ string:to_upper(Name) ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := select, num_rows := NRows, rows := Rows} ->\n"
     "            {ok, NRows, Rows};\n"
     "        {error, Reason} ->\n"
@@ -1049,7 +1099,7 @@ list_lookup_fun(undefined, [#index{is_lookup = true, columns = Columns, name = N
     Name = proto_crudl_utils:to_string(N),
     S = Name ++ "(M = " ++ Map ++ ") when is_map(M) ->\n"
     "    Params = " ++ Params ++ ",\n"
-    "    case pgo:query(?" ++ string:to_upper(Name) ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
+    "    case pgo:query(?" ++ string:to_upper(Name) ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := select, num_rows := NRows, rows := Rows} ->\n"
     "            {ok, NRows, Rows};\n"
     "        {error, Reason} ->\n"
@@ -1062,7 +1112,7 @@ list_lookup_fun(RecordName, [#index{is_list = true, columns = Columns, name = N}
     Name = proto_crudl_utils:to_string(N),
     S = Name ++ "(R = " ++ Record ++ ", Limit, Offset) when is_record(R, " ++ RecordName ++ ") ->\n"
         "    Params = " ++ Params ++ ",\n"
-        "    case pgo:query(?" ++ string:to_upper(Name) ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
+        "    case pgo:query(?" ++ string:to_upper(Name) ++ ", Params, #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
         "        #{command := select, num_rows := NRows, rows := Rows} ->\n"
         "            {ok, NRows, Rows};\n"
         "        {error, Reason} ->\n"
@@ -1075,7 +1125,7 @@ list_lookup_fun(RecordName, [#index{is_lookup = true, columns = Columns, name = 
     Name = proto_crudl_utils:to_string(N),
     S = Name ++ "(R = " ++ Record ++ ") when is_record(R, " ++ RecordName ++ ") ->\n"
         "    Params = " ++ Params ++ ",\n"
-        "    case pgo:query(?" ++ string:to_upper(Name) ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
+        "    case pgo:query(?" ++ string:to_upper(Name) ++ ", Params, #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
         "        #{command := select, num_rows := NRows, rows := Rows} ->\n"
         "            {ok, NRows, Rows};\n"
         "        {error, Reason} ->\n"
@@ -1092,24 +1142,24 @@ mappings_fun(RecordName, #table{mappings = Mappings}) ->
 
 mapping_fun(_RecordName, [], Acc) ->
     lists:join("\n\n", Acc);
-mapping_fun(undefined, [{Name, Query} | Rest], Acc) ->
+mapping_fun(undefined, [{Name, #custom_query{query = Query}} | Rest], Acc) ->
     Cnt = count_params(Query),
     Params = lists:flatten(lists:join(", ", ["Value" ++ integer_to_list(C) || C <- lists:seq(1, Cnt)])),
     S = proto_crudl_utils:to_string(Name) ++ "(" ++ Params ++ ") ->\n"
     "    Params = [" ++ Params ++ "],\n"
-    "    case pgo:query(?" ++ string:to_upper(atom_to_list(Name)) ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
+    "    case pgo:query(?" ++ string:to_upper(atom_to_list(Name)) ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{num_rows := NRows, rows := Rows} ->\n"
     "            {ok, NRows, Rows};\n"
     "        {error, Reason} ->\n"
     "            {error, Reason}\n"
     "    end.",
     mapping_fun(undefined, Rest, [S | Acc]);
-mapping_fun(RecordName, [{Name, Query} | Rest], Acc) ->
+mapping_fun(RecordName, [{Name, #custom_query{query = Query}} | Rest], Acc) ->
     Cnt = count_params(Query),
     Params = lists:flatten(lists:join(", ", ["Value" ++ integer_to_list(C) || C <- lists:seq(1, Cnt)])),
     S = proto_crudl_utils:to_string(Name) ++ "(" ++ Params ++ ") ->\n"
     "    Params = [" ++ Params ++ "],\n"
-    "    case pgo:query(?" ++ string:to_upper(atom_to_list(Name)) ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/2}]}) of\n"
+    "    case pgo:query(?" ++ string:to_upper(atom_to_list(Name)) ++ ", Params, #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{num_rows := NRows, rows := Rows} ->\n"
     "            {ok, NRows, Rows};\n"
     "        {error, Reason} ->\n"

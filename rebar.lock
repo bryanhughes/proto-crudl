@@ -3,7 +3,7 @@
  {<<"pg_types">>,{pkg,<<"pg_types">>,<<"0.4.0">>},1},
  {<<"pgo">>,
   {git,"https://github.com/bryanhughes/pgo.git",
-       {ref,"da48a9b769d4efbef866b7a0902328880c54a540"}},
+       {ref,"a62eb1443361f0c0002dfea90b5af1db01e85b57"}},
   0},
  {<<"telemetry">>,{pkg,<<"telemetry">>,<<"0.4.2">>},1}]}.
 [

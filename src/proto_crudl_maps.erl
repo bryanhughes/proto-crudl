@@ -6,7 +6,7 @@
 %%% @end
 %%% Created : 16. Feb 2021 7:47 AM
 %%%-------------------------------------------------------------------
--module(proto_crutl_maps).
+-module(proto_crudl_maps).
 -author("bryan").
 
 %% API
@@ -20,7 +20,7 @@ generate_functions(postgres, FullPath, Table) ->
     ok = file:write_file(FullPath, ts_support(orddict:to_list(Table#table.columns)), [append]),
     ok = file:write_file(FullPath, empty_map(Table), [append]),
     ok = file:write_file(FullPath, row_decoder(Table), [append]),
-    ok = file:write_file(FullPath, proto_crudl_psql:limit_fun(), [append]),
+    ok = file:write_file(FullPath, proto_crudl_psql:limit_fun(undefined), [append]),
     ok = file:write_file(FullPath, proto_crudl_psql:create_fun(undefined, Table), [append]),
     case Table#table.pkey_list of
         [] ->
@@ -39,12 +39,12 @@ generate_functions(Provider, _FullPath, _Table) ->
 
 row_decoder(#table{columns = ColDict}) ->
     Columns = orddict:to_list(ColDict),
-    "decode_row(Row = #{" ++ lists:join(",", build_row_args(Columns, [])) ++ "}, _Fields) ->\n" ++
+    "decode_row(Row = #{" ++ lists:join(",", build_row_args(Columns, [])) ++ "}, _Fields, _Params) ->\n" ++
     "    Row#{" ++ lists:join(",", build_row_assigns(Columns, [])) ++ "};\n" ++
-    "decode_row(Row, _Fields) ->\n" ++
+    "decode_row(Row, _Fields, _Params) ->\n" ++
     "    Row.\n\n";
 row_decoder(_Table) ->
-    "decode_row(Row, _Fields) ->\n"
+    "decode_row(Row, _Fields, _Params) ->\n"
     "    Row.\n\n".
 
 build_row_args([], Acc) ->

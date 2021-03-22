@@ -245,9 +245,54 @@ process_mappings([{FQN, QueryList} | Rest], Db = #database{tables = TablesDict})
 process_mapping([], Table) ->
     {ok, Table};
 process_mapping([{Name, Query} | Rest], Table) ->
-    io:format("        ~p : ~p~n", [Name, Query]),
-    process_mapping(Rest, Table#table{mappings = orddict:store(Name, Query, Table#table.mappings)}).
+    Expanded = proto_crudl_code:maybe_expand_sql(Table, Query),
+    BindVars = case string:prefix(string:to_lower(Expanded), "select") of
+                   nomatch ->
+                       [];
+                   _ ->
+                       parse_query(Expanded)
+               end,
+    Q = #custom_query{name = Name, query = Expanded, bind_vars = BindVars},
+    io:format("        ~p : ~p~n", [Name, Expanded]),
+    process_mapping(Rest, Table#table{mappings = orddict:store(Name, Q, Table#table.mappings)}).
 
+-spec parse_query(string()) -> [#bind_var{}].
+parse_query(SelectStatement) ->
+    View = "CREATE TEMPORARY VIEW proto_crudl_desc AS " ++ strip_where_clause(SelectStatement),
+    X = pgo:query(View, [], #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}]}),
+    case X of
+        #{command := create, num_rows := view, rows := []} ->
+            case process_view() of
+                {ok, BindVars} ->
+                    BindVars;
+                {error, _Reason} ->
+                    []
+            end;
+        {error, Reason} ->
+            io:format("    WARNING: Failed create view. Reason=~p, Stmt=~p~n", [Reason, View]),
+            []
+    end.
+
+strip_where_clause(SelectStatement) ->
+    S = lists:reverse(string:to_lower(SelectStatement)),
+    Pos = find_where(0, S),
+    Len = (length(S) - Pos),
+    string:sub_string(SelectStatement, 1, Len).
+
+find_where(Pos, []) ->
+    Pos;
+find_where(Pos, [$e, $r, $e, $h, $w | _Rest]) ->
+    Pos + 5;
+find_where(Pos, [_Chr | Rest]) ->
+    find_where(Pos + 1, Rest).
+
+process_view() ->
+    case proto_crudl_psql:read_temp_view() of
+        {ok, Rows} ->
+            {ok, [#bind_var{name = N, data_type = DT, udt_name = UN} || #{column_name := N, data_type := DT, udt_name := UN} <- Rows]};
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 -spec process_extensions([tuple()], #database{}) -> {ok, #database{}} | {error, Reason :: any()}.
 process_extensions([], Database) ->
@@ -407,9 +452,23 @@ first_test() ->
 
     ok.
 
+find_where_test() ->
+    ?LOG_INFO("====================== find_where_test() START ======================"),
+    Str = "SELECT * FROM test_schema.user WHERE ST_DWithin(geog, Geography(ST_MakePoint($1, $2)), $3:integer) "
+          "ORDER BY geog <-> ST_POINT($1F, $2)::geography",
+    S = lists:reverse(string:to_lower(Str)),
+    Pos = find_where(0, S),
+    Len = (length(S) - Pos),
+    logger:info("Pos=~p, length=~p, Len=~p, Str=~p", [Pos, length(S), Len, S]),
+    Str1 = string:sub_string(Str, 1, Len),
+    logger:info("Str1=~p", [Str1]),
+    Expected = "SELECT * FROM test_schema.user ",
+    ?assertEqual(Expected, Str1),
+    ?LOG_INFO("====================== find_where_test() END ======================"),
+    ok.
+
 process_transforms_test() ->
     ?LOG_INFO("====================== process_transforms_test() START ======================"),
-
     {ok, Database} = proto_crudl_psql:read_database([{schemas, ["public", "test_schema"]},
                                                    {excluded, ["public.excluded", "spatial_ref_sys"]}]),
 
@@ -497,8 +556,11 @@ process_mappings_test() ->
 
     Mappings = UserTable#table.mappings,
     ?assertEqual(8, orddict:size(Mappings)),
-    Query = orddict:fetch(get_pword_hash, Mappings),
-    ?LOG_INFO("Query=~p", [Query]),
+    CustomQuery = orddict:fetch(get_pword_hash, Mappings),
+    ?LOG_INFO("CustomQuery=~p", [CustomQuery]),
+    Query = CustomQuery#custom_query.query,
+    ?assertEqual(get_pword_hash, CustomQuery#custom_query.name),
+    ?assertEqual([{bind_var,<<"pword_hash">>,<<"bytea">>,<<"bytea">>}], CustomQuery#custom_query.bind_vars),
     ?assertEqual("SELECT pword_hash FROM test_schema.user WHERE email = $1", Query),
 
     {ok, ProductTable} = dict:find(<<"public.product">>, TablesDict),

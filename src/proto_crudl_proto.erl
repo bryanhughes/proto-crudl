@@ -37,6 +37,7 @@ generate(Version, Path, JavaPackage, TableDict, [FQN | Rest]) ->
     case filelib:ensure_dir(ProtoFile) of
         ok ->
             write_proto(Version, ProtoFile, JavaPackage, Table),
+            write_custom_proto(Version, ProtoFile, Table),
             generate(Version, Path, JavaPackage, TableDict, Rest);
         {error, eexist} ->
             write_proto(Version, ProtoFile, JavaPackage, Table),
@@ -150,7 +151,6 @@ make_enum_label(Value) ->
             "_" ++ Value2
     end.
 
-
 write_proto_fields(Version, #table{columns = ColDict, select_list = SList}) ->
     Fun1 = fun(ColumnName, {FieldNo, List}) ->
                 Column = orddict:fetch(ColumnName, ColDict),
@@ -173,3 +173,133 @@ write_proto_fields(Version, #table{columns = ColDict, select_list = SList}) ->
                 end
            end,
     lists:foldl(Fun1, {1, []}, SList).
+
+write_custom_proto(Version, ProtoFile, _Table = #table{mappings = Mappings}) ->
+    Break = "//-------------------------- Custom Queries -----------------------------\n\n",
+    ok = file:write_file(ProtoFile, Break, [append]),
+    Code = write_custom_message(Version, orddict:to_list(Mappings), []),
+    file:write_file(ProtoFile, Code, [append]).
+
+write_custom_message(_Version, [], Acc) ->
+    lists:flatten(Acc);
+write_custom_message(Version, [{Key, #custom_query{bind_vars = BindVars}} | Rest], Acc) when length(BindVars) > 0 ->
+    {_FieldNo, LineList} = write_custom_fields(Version, BindVars),
+    Str = "message " ++ proto_crudl_utils:camel_case(Key) ++ "{\n" ++
+          lists:reverse(LineList) ++
+          "}\n\n",
+    write_custom_message(Version, Rest, [Str | Acc]);
+write_custom_message(Version, [_Head | Rest], Acc) ->
+    write_custom_message(Version, Rest, Acc).
+
+write_custom_fields(Version, BindVars) ->
+    Fun1 = fun(#bind_var{name = Name, data_type = DataType, udt_name = UdtName}, {FieldNo, List}) ->
+                FieldType = proto_crudl_psql:sql_to_proto_datatype(UdtName),
+                Repeated = case DataType of
+                               <<"ARRAY">> -> "repeated ";
+                               _ -> case Version of "proto2" -> "optional "; _ -> "" end
+                           end,
+                Line = "  " ++ Repeated ++ FieldType ++ " " ++ proto_crudl_utils:to_string(Name) ++ " = " ++
+                       integer_to_list(FieldNo) ++ ";\n",
+                case lists:member(Line, List) of
+                    true -> {FieldNo, List};
+                    false -> {FieldNo + 1, [Line | List]}
+                end
+           end,
+    lists:foldl(Fun1, {1, []}, BindVars).
+
+
+%%
+%% Tests
+%%
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/logger.hrl").
+
+-define(DROP_DB, "DROP DATABASE proto_crudl").
+-define(CREATE_DB, "CREATE DATABASE proto_crudl WITH OWNER = proto_crudl ENCODING = 'UTF8' TEMPLATE = template0 CONNECTION LIMIT = -1").
+
+first_test() ->
+    logger:set_primary_config(level, info),
+    application:ensure_all_started(pgo),
+    application:set_env(pg_types, uuid_format, string),
+    pgo:start_pool(default, #{pool_size => 10,
+                              host => "127.0.0.1",
+                              port => 5432,
+                              database => "proto_crudl",
+                              user => "proto_crudl",
+                              password => "proto_crudl"}),
+
+    ok.
+
+proto_test() ->
+    ?LOG_INFO("====================== proto_test() START ======================"),
+    {ok, Database} = proto_crudl_psql:read_database([{schemas, ["public", "test_schema"]},
+                                                     {excluded, ["public.excluded", "spatial_ref_sys"]}]),
+
+    Configs = [
+        {transforms, [
+            {"test_schema.user", [
+                % For the select transform, we need to know the datatype of the product of the transform. This is needed for
+                % generating the protobufs
+                {select, [{"lat", "decimal", "ST_Y(geog::geometry)"},
+                          {"lon", "decimal", "ST_X(geog::geometry)"}]},
+                {insert, [{"geog", "geography", "ST_POINT($lon, $lat)::geography"}]},
+                {update, [{"geog", "geography", "ST_POINT($lon, $lat)::geography"}]}]},
+            {"public.foo", [
+                {select, [{"foobar", "integer", "1"}]}]}
+        ]},
+        {exclude_columns, [
+            {"test_schema.user", ["pword_hash", "geog"]}
+                          ]},
+        {mapping, [
+            {"test_schema.user", [
+                {get_pword_hash, "SELECT pword_hash FROM test_schema.user WHERE email = $1"},
+                {update_pword_hash, "UPDATE test_schema.user SET pword_hash = $2 WHERE email = $1"},
+                {reset_pword_hash, "UPDATE test_schema.user SET pword_hash = NULL WHERE email = $1"},
+                {disable_user, "UPDATE test_schema.user SET enabled = false WHERE email = $1"},
+                {enable_user, "UPDATE test_schema.user SET enabled = true WHERE email = $1"},
+                {delete_user_by_email, "DELETE FROM test_schema.user WHERE email = $1"},
+                {set_token, "UPDATE test_schema.user SET user_token = uuid_generate_v4() WHERE user_id = $1 RETURNING user_token"},
+                {find_nearest, "SELECT * FROM test_schema.user "
+                               "WHERE ST_DWithin(geog, Geography(ST_MakePoint($1, $2)), $3) "
+                               "ORDER BY geog <-> ST_POINT($1, $2)::geography"}
+            ]}
+                  ]}],
+
+    {ok, Database1} = proto_crudl:process_configs(Configs, Database),
+    TablesDict = Database1#database.tables,
+    {ok, UserTable} = dict:find(<<"test_schema.user">>, TablesDict),
+
+    Code = write_custom_message("proto2", orddict:to_list(UserTable#table.mappings), []),
+    ?LOG_INFO("Code=~p", [Code]),
+
+    _Expected = "message FindNearest {
+  enum UserType {
+    _123FUN = 0;
+    BUSYGAL = 1;
+    BUSY_GUY = 2;
+    LITTLE_SHOT = 3;
+    BIG_SHOT = 4;
+  }
+  optional int64 user_id = 1;
+  optional string first_name = 2;
+  optional string last_name = 3;
+  optional string email = 4;
+  optional string user_token = 5;
+  optional bool enabled = 6;
+  optional int64 aka_id = 7;
+  repeated int32 my_array = 8;
+  optional UserType user_type = 9;
+  optional int32 number_value = 10;
+  optional google.protobuf.Timestamp created_on = 11;
+  optional google.protobuf.Timestamp updated_on = 12;
+  optional int64 due_date = 13;
+  optional int64 version = 14;
+  optional double lat = 15;
+  optional double lon = 16;
+}",
+    ?LOG_INFO("====================== proto_test() END ======================"),
+    ok.
+
+
+-endif.

@@ -20,12 +20,12 @@ generate_functions(postgres, FullPath, UsePackage, T = #table{schema = S, name =
                      true ->
                          "'" ++ proto_crudl_utils:to_string(S) ++ "." ++ proto_crudl_utils:camel_case(N) ++ "'";
                      false ->
-                         proto_crudl_utils:to_string(N)
+                         "'" ++ proto_crudl_utils:camel_case(N) ++ "'"
                  end,
     ok = file:write_file(FullPath, ts_support(orddict:to_list(T#table.columns)), [append]),
     ok = file:write_file(FullPath, empty_record(RecordName, T), [append]),
-    ok = file:write_file(FullPath, row_decoder(T), [append]),
-    ok = file:write_file(FullPath, proto_crudl_psql:limit_fun(), [append]),
+    ok = file:write_file(FullPath, table_row_decoder(T), [append]),
+    ok = file:write_file(FullPath, proto_crudl_psql:limit_fun(RecordName), [append]),
     ok = file:write_file(FullPath, proto_crudl_psql:create_fun(RecordName, T), [append]),
     case T#table.pkey_list of
         [] ->
@@ -84,9 +84,11 @@ empty_record(RecordName, Table) ->
     "new_default() ->\n"
     "    " ++ build_empty_record(true, RecordName, Table) ++ ".\n\n".
 
-row_decoder(#table{columns = ColDict, schema = S, name = N}) ->
+% TODO: Put the custom query records mappings before
+table_row_decoder(#table{columns = ColDict, schema = S, name = N}) ->
     Columns = orddict:to_list(ColDict),
-    "decode_row(Row, _Fields) ->\n"
+    RecordName = proto_crudl_utils:to_string(S) ++ "." ++ proto_crudl_utils:camel_case(N),
+    "decode_row(Row, _Fields, ['" ++ RecordName ++ "']) ->\n"
     "    F = fun(Field, Acc) ->\n"
     "            case Field of\n" ++
     decode_columns(Columns, []) ++
@@ -94,9 +96,10 @@ row_decoder(#table{columns = ColDict, schema = S, name = N}) ->
     "                    [case maps:get(Field, Row, undefined) of null -> undefined; V -> V end | Acc]\n"
     "            end\n"
     "        end,\n"
-    "    L = lists:reverse(lists:foldl(F, ['test_schema.User'], record_info(fields, '" ++
-    proto_crudl_utils:to_string(S) ++ "." ++ proto_crudl_utils:camel_case(N) ++ "'))),\n"
-    "    list_to_tuple(L).\n\n".
+    "    L = lists:reverse(lists:foldl(F, ['test_schema.User'], record_info(fields, '" ++ RecordName ++ "'))),\n"
+    "    list_to_tuple(L);\n"
+    "decode_row(Row, _Fields, []) ->\n"
+    "    Row.\n\n".
 
 
 decode_columns([], Acc) ->
