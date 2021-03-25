@@ -77,7 +77,7 @@ crudl_proto_maps_test() ->
     ?assertEqual([1, 2, 3], maps:get(my_array, Bryan1)),
     ?assertEqual('BIG_SHOT', maps:get(user_type, Bryan1)),
     ?assertEqual(0, maps:get(version, Bryan1)),
-    ?assertEqual({{2021, 2, 23}, {10, 23, 23.5}}, test_schema_user_db:ts_decode_map(maps:get(created_on, Bryan1))),
+    ?assertEqual({{2021, 2, 23}, {10, 23, 23.5}}, test_schema_user_db:ts_decode(maps:get(created_on, Bryan1))),
 
     % The code was generated with {use_defaults, true}, while non-foreign keys are set to a default or empty value
     % because of the proto3 code generation, foreign key columns are still null
@@ -302,7 +302,7 @@ crudl_proto_records_test() ->
     ?assertEqual('BIG_SHOT', Bryan1#'test_schema.User'.user_type),
     ?assertEqual(0, Bryan1#'test_schema.User'.version),
     ?assertEqual({{2021, 2, 23}, {10, 23, 23.5}},
-                 test_schema_user_db:ts_decode_map(Bryan1#'test_schema.User'.created_on)),
+                 test_schema_user_db:ts_decode(Bryan1#'test_schema.User'.created_on)),
 
     % The code was generated with {use_defaults, true}, while non-foreign keys are set to a default or empty value
     % because of the proto3 code generation, foreign key columns are still null

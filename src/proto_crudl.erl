@@ -268,13 +268,12 @@ process_mapping(C, [{Name, Query} | Rest], Table) ->
 
 -spec parse_query(pid(), string()) -> [#bind_var{}].
 parse_query(C, SelectStatement) ->
-    io:format("SelectStatement=~p~n", [SelectStatement]),
     case epgsql:squery(C, SelectStatement) of
         {ok, Fields, _} when length(Fields) > 0 ->
             logger:info("Fields=~p", [Fields]),
             [#bind_var{name = N, data_type = proto_crudl_utils:to_binary(DT)} || {column,N,DT,_,_,_,_,_,_} <- Fields];
         {error, Reason} ->
-            io:format("    WARNING: Failed create view. Reason=~p, Stmt=~p~n", [Reason, SelectStatement]),
+            io:format("    WARNING: Failed parse custom query. Reason=~p, Stmt=~p~n", [Reason, SelectStatement]),
             []
     end.
 

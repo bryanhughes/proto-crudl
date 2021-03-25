@@ -37,10 +37,13 @@ generate(Version, Path, JavaPackage, TableDict, [FQN | Rest]) ->
     case filelib:ensure_dir(ProtoFile) of
         ok ->
             write_proto(Version, ProtoFile, JavaPackage, Table),
+            write_raw_proto(Version, ProtoFile, Table),
             write_custom_proto(Version, ProtoFile, Table),
             generate(Version, Path, JavaPackage, TableDict, Rest);
         {error, eexist} ->
             write_proto(Version, ProtoFile, JavaPackage, Table),
+            write_raw_proto(Version, ProtoFile, Table),
+            write_custom_proto(Version, ProtoFile, Table),
             generate(Version, Path, JavaPackage, TableDict, Rest);
         {error, eacces} -> io:format("Missing search or write permissions for the parent directories of ~p~n",
                                      [ProtoFile]),
@@ -92,7 +95,8 @@ write_proto(Version, ProtoFile, JavaPackage, Table) ->
     end,
 
     % Write enums
-    ok = write_proto_enums(ProtoFile, Table),
+    Code = write_proto_enums(Table),
+    ok = file:write_file(ProtoFile, Code, [append]),
 
     % Write fields
     {_FieldNo, LineList} = write_proto_fields(Version, Table),
@@ -116,9 +120,9 @@ write_special_imports(_UdtName) ->
     "".
 
 
-write_proto_enums(_ProtoFile, #table{has_valid_values = false}) ->
-    ok;
-write_proto_enums(ProtoFile, #table{columns = ColDict}) ->
+write_proto_enums(#table{has_valid_values = false}) ->
+    "";
+write_proto_enums(#table{columns = ColDict}) ->
     Fun = fun(ColumnName, #column{valid_values = ValidValues}, Acc) ->
                 case length(ValidValues) of
                     0 ->
@@ -130,13 +134,10 @@ write_proto_enums(ProtoFile, #table{columns = ColDict}) ->
                                     {FieldNo + 1, ["    " ++ V ++ " = " ++ integer_to_list(FieldNo) ++ ";\n" | List]}
                                 end,
                         {_FieldNo, Lines} = lists:foldl(Inner, {0, [Line]}, ValidValues),
-                        [ok = file:write_file(ProtoFile, EnumLine, [append]) || EnumLine <- lists:reverse(Lines)],
-                        ok = file:write_file(ProtoFile, "  }\n", [append]),
-                        Acc
+                        lists:flatten(lists:reverse(Lines)) ++ "  }\n"
                 end
           end,
-    orddict:fold(Fun, [], ColDict),
-    ok.
+    orddict:fold(Fun, "", ColDict).
 
 
 -spec make_enum_label(string()) -> string().
@@ -174,6 +175,44 @@ write_proto_fields(Version, #table{columns = ColDict, select_list = SList}) ->
            end,
     lists:foldl(Fun1, {1, []}, SList).
 
+write_raw_proto(Version, ProtoFile, T = #table{name = Name}) ->
+    Break = "//-------------------------- Index Proto -----------------------------\n\n",
+    ok = file:write_file(ProtoFile, Break, [append]),
+    Code = write_raw_message(Version, Name, T),
+    file:write_file(ProtoFile, Code, [append]).
+
+write_raw_message(Version, Name, Table = #table{columns = ColDict}) ->
+    {_FieldNo, LineList} = write_all_fields(Version, orddict:to_list(ColDict)),
+    "message Raw" ++ proto_crudl_utils:camel_case(Name) ++ "{\n" ++
+    case Table#table.proto_extension of
+       undefined -> "";
+       E -> "  extensions " ++ E ++ ";\n"
+    end ++
+        write_proto_enums(Table) ++
+        lists:reverse(LineList) ++
+    "}\n\n".
+
+write_all_fields(Version, Columns) ->
+    Fun1 = fun({ColumnName, Column}, {FieldNo, List}) ->
+                DataType = Column#column.data_type,
+                UdtName = Column#column.udt_name,
+                FieldType = case Column#column.valid_values of
+                                [] -> proto_crudl_psql:sql_to_proto_datatype(UdtName);
+                                _ -> proto_crudl_utils:camel_case(ColumnName)
+                            end,
+                Repeated = case DataType of
+                               <<"ARRAY">> -> "repeated ";
+                               _ -> case Version of "proto2" -> "optional "; _ -> "" end
+                           end,
+                Line = "  " ++ Repeated ++ FieldType ++ " " ++ proto_crudl_utils:to_string(ColumnName) ++ " = " ++ integer_to_list(FieldNo) ++ ";\n",
+                case lists:member(Line, List) of
+                    true -> {FieldNo, List};
+                    false -> {FieldNo + 1, [Line | List]}
+                end
+           end,
+    lists:foldl(Fun1, {1, []}, Columns).
+
+
 write_custom_proto(Version, ProtoFile, _Table = #table{mappings = Mappings}) ->
     Break = "//-------------------------- Custom Queries -----------------------------\n\n",
     ok = file:write_file(ProtoFile, Break, [append]),
@@ -184,9 +223,7 @@ write_custom_message(_Version, [], Acc) ->
     lists:flatten(Acc);
 write_custom_message(Version, [{Key, #custom_query{result_set = ResultSets}} | Rest], Acc) when length(ResultSets) > 0 ->
     {_FieldNo, LineList} = write_custom_fields(Version, ResultSets),
-    Str = "message " ++ proto_crudl_utils:camel_case(Key) ++ "{\n" ++
-          lists:reverse(LineList) ++
-          "}\n\n",
+    Str = "message " ++ proto_crudl_utils:camel_case(Key) ++ "{\n" ++ lists:reverse(LineList) ++ "}\n\n",
     write_custom_message(Version, Rest, [Str | Acc]);
 write_custom_message(Version, [_Head | Rest], Acc) ->
     write_custom_message(Version, Rest, Acc).

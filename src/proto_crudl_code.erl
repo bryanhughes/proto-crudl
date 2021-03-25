@@ -259,8 +259,8 @@ generate_exports(RecordsOrMaps, FullPath, Table) ->
 
     case Table#table.has_timestamps of
         true ->
-            ok = file:write_file(FullPath, "         ts_encode_map/1,\n"
-                                           "         ts_decode_map/1,\n", [append]);
+            ok = file:write_file(FullPath, "         ts_encode/1,\n"
+                                           "         ts_decode/1,\n", [append]);
         _ ->
             ok
     end,
@@ -706,7 +706,7 @@ handle_mapped_params(Which, ColDict, [CName | Rest], Acc) ->
             case proto_crudl_psql:is_timestamp(C#column.udt_name) of
                 true ->
                     handle_mapped_params(Which, ColDict, Rest,
-                                         ["ts_decode_map(" ++ proto_crudl_utils:camel_case(CName) ++ ")" | Acc]);
+                                         ["ts_decode(" ++ proto_crudl_utils:camel_case(CName) ++ ")" | Acc]);
                 false ->
                     handle_mapped_params(Which, ColDict, Rest,
                                          [proto_crudl_utils:camel_case(proto_crudl_utils:to_string(CName)) | Acc])

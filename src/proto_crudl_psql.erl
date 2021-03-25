@@ -252,10 +252,14 @@ process_columns(Table, VersionColumn, [{CN, OP, DT, UN, CD, IN, IP, IS} | Rest])
     HasTimestamps = Table#table.has_timestamps or is_timestamp(UN),
     io:format("    Column: ~p  ~p  ~p ... (default: ~p, is_pkey: ~p, is_seq: ~p, is_nullable: ~p, is_version: ~p, has_timestamps: ~p)~n",
               [CN, DT, UN, CD, IP, IS, IN0, IsVersion, HasTimestamps]),
-    DefaultList = case {CD, IS} of
-                      {null, false} ->
+
+    DefaultList = case {IsVersion, CD, IS} of
+                      {true, _, _} ->
+                          % Ignore the default if the column is the version column
                           Table#table.default_list;
-                      {_, true} ->
+                      {_, null, false} ->
+                          Table#table.default_list;
+                      {_, _, true} ->
                           Table#table.default_list;
                       _ ->
                           [CN | Table#table.default_list] end,

@@ -63,7 +63,7 @@ build_row_assigns([{_Key, #column{name = N, valid_values = V}} | Rest], Acc) whe
     build_row_assigns(Rest, [Name ++ " => " ++ Name ++ "_enum(" ++ proto_crudl_utils:camel_case(N) ++ ")" | Acc]);
 build_row_assigns([{_Key, #column{name = N, udt_name = <<116, 105, 109, 101, 115, 116, 97, 109, 112, _Rest/binary>>}} | Rest], Acc) ->
     Name = proto_crudl_utils:to_list(N),
-    build_row_assigns(Rest, [Name ++ " => " ++ "ts_encode_map(" ++ proto_crudl_utils:camel_case(N) ++ ")" | Acc]);
+    build_row_assigns(Rest, [Name ++ " => " ++ "ts_encode(" ++ proto_crudl_utils:camel_case(N) ++ ")" | Acc]);
 build_row_assigns([_Head | Rest], Acc) ->
     build_row_assigns(Rest, Acc).
 
@@ -76,24 +76,24 @@ ts_support([{_Key, #column{udt_name = UN}} | Rest]) ->
         nomatch ->
             ts_support(Rest);
         _ ->
-            "ts_encode_map(Datetime={{_, _, _}, {_, _, Seconds}}) when is_integer(Seconds) ->\n"
+            "ts_encode(Datetime={{_, _, _}, {_, _, Seconds}}) when is_integer(Seconds) ->\n"
             "    Secs = calendar:datetime_to_gregorian_seconds(Datetime) - 62167219200,\n"
             "    #{seconds => Secs, nanos => 0};\n"
-            "ts_encode_map({{Year, Month, Day}, {Hours, Minutes, Seconds}}) when is_float(Seconds)->\n"
+            "ts_encode({{Year, Month, Day}, {Hours, Minutes, Seconds}}) when is_float(Seconds)->\n"
             "    IntegerSeconds = trunc(Seconds),\n"
             "    US = trunc((Seconds - IntegerSeconds) * 1000000),\n"
             "    Secs = calendar:datetime_to_gregorian_seconds({{Year, Month, Day},\n"
             "                                                   {Hours, Minutes, IntegerSeconds}}) - 62167219200,\n"
             "    #{seconds => Secs, nanos => US};\n"
-            "ts_encode_map(V) ->\n"
+            "ts_encode(V) ->\n"
             "    V.\n"
             "\n"
-            "ts_decode_map(#{seconds := S, nanos := N}) ->\n"
+            "ts_decode(#{seconds := S, nanos := N}) ->\n"
             "    {Date, {Hour, Min, Seconds}} = calendar:gregorian_seconds_to_datetime(S + 62167219200),\n"
             "    Seconds1 = add_usecs(Seconds, N),\n"
             "    Time = {Hour, Min, Seconds1},\n"
             "    {Date, Time};\n"
-            "ts_decode_map(V) ->\n"
+            "ts_decode(V) ->\n"
             "    V.\n\n"
             "add_usecs(Secs, 0) ->\n"
             "    %% leave seconds as an integer if there are no usecs\n"

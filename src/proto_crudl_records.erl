@@ -25,6 +25,7 @@ generate_functions(postgres, FullPath, UsePackage, T = #table{schema = S, name =
     ok = file:write_file(FullPath, ts_support(orddict:to_list(T#table.columns)), [append]),
     ok = file:write_file(FullPath, empty_record(RecordName, T), [append]),
     Schema = proto_crudl_utils:to_string(T#table.schema),
+    ok = file:write_file(FullPath, raw_row_decoder(T), [append]),
     ok = file:write_file(FullPath, custom_row_decoders(Schema, orddict:to_list(T#table.mappings), []), [append]),
     ok = file:write_file(FullPath, table_row_decoder(T), [append]),
     ok = file:write_file(FullPath, proto_crudl_psql:limit_fun(RecordName), [append]),
@@ -52,26 +53,26 @@ ts_support([{_Key, #column{udt_name = UN}} | Rest]) ->
         nomatch ->
             ts_support(Rest);
         _ ->
-            "ts_encode_map(Datetime={{_, _, _}, {_, _, Seconds}}) when is_integer(Seconds) ->\n"
+            "ts_encode(Datetime={{_, _, _}, {_, _, Seconds}}) when is_integer(Seconds) ->\n"
             "    Secs = calendar:datetime_to_gregorian_seconds(Datetime) - 62167219200,\n"
             "    #{seconds => Secs, nanos => 0};\n"
-            "ts_encode_map({{Year, Month, Day}, {Hours, Minutes, Seconds}}) when is_float(Seconds)->\n"
+            "ts_encode({{Year, Month, Day}, {Hours, Minutes, Seconds}}) when is_float(Seconds)->\n"
             "    IntegerSeconds = trunc(Seconds),\n"
             "    US = trunc((Seconds - IntegerSeconds) * 1000000),\n"
             "    Secs = calendar:datetime_to_gregorian_seconds({{Year, Month, Day},\n"
             "                                                   {Hours, Minutes, IntegerSeconds}}) - 62167219200,\n"
             "    #'google.protobuf.Timestamp'{seconds = Secs, nanos = US};\n"
-            "ts_encode_map(null) ->\n"
+            "ts_encode(null) ->\n"
             "    undefined;\n"
-            "ts_encode_map(V) ->\n"
+            "ts_encode(V) ->\n"
             "    V.\n"
             "\n"
-            "ts_decode_map(#'google.protobuf.Timestamp'{seconds = S, nanos = N}) ->\n"
+            "ts_decode(#'google.protobuf.Timestamp'{seconds = S, nanos = N}) ->\n"
             "    {Date, {Hour, Min, Seconds}} = calendar:gregorian_seconds_to_datetime(S + 62167219200),\n"
             "    Seconds1 = add_usecs(Seconds, N),\n"
             "    Time = {Hour, Min, Seconds1},\n"
             "    {Date, Time};\n"
-            "ts_decode_map(V) ->\n"
+            "ts_decode(V) ->\n"
             "    V.\n\n"
             "add_usecs(Secs, 0) ->\n"
             "    %% leave seconds as an integer if there are no usecs\n"
@@ -85,6 +86,20 @@ empty_record(RecordName, Table) ->
     "    " ++ build_empty_record(false, RecordName, Table) ++ ".\n\n"
     "new_default() ->\n"
     "    " ++ build_empty_record(true, RecordName, Table) ++ ".\n\n".
+
+raw_row_decoder(#table{columns = ColDict, schema = S, name = N}) ->
+    Columns = orddict:to_list(ColDict),
+    RecordName = proto_crudl_utils:to_string(S) ++ ".Raw" ++ proto_crudl_utils:camel_case(N),
+    "decode_row(Row, _Fields, ['" ++ RecordName ++ "']) ->\n"
+    "    F = fun(Field, Acc) ->\n"
+    "            case Field of\n" ++
+    decode_columns(Columns, []) ++
+    "                _ ->\n"
+    "                    [case maps:get(Field, Row, undefined) of null -> undefined; V -> V end | Acc]\n"
+    "            end\n"
+    "        end,\n"
+    "    L = lists:reverse(lists:foldl(F, ['" ++ RecordName ++ "'], record_info(fields, '" ++ RecordName ++ "'))),\n"
+    "    list_to_tuple(L);\n".
 
 %% NOTE: Custom queries can not map enumerations to and from valid values.
 custom_row_decoders(_SchemaName, [], Acc) ->
@@ -113,7 +128,7 @@ decode_resultset([#bind_var{name = Name, data_type = <<116, 105, 109, 101, 115, 
     CamelCase = proto_crudl_utils:camel_case(Name),
     Code = "                " ++ LowerName ++ " ->\n" ++
            "                    " ++ CamelCase ++ " = maps:get(" ++ LowerName ++ ", Row, undefined),\n" ++
-           "                    [ts_encode_map(" ++ CamelCase ++ ") | Acc];\n",
+           "                    [ts_encode(" ++ CamelCase ++ ") | Acc];\n",
     decode_resultset(Rest, [Code | Acc]);
 decode_resultset([_Head | Rest], Acc) ->
     decode_resultset(Rest, Acc).
@@ -149,7 +164,7 @@ decode_columns([{_Key, #column{name = N, udt_name = <<116, 105, 109, 101, 115, 1
     Cc = proto_crudl_utils:camel_case(N),
     Code = ["                " ++ Ln ++ " ->\n" ++
             "                    " ++ Cc ++ " = maps:get(" ++ Ln ++ ", Row, undefined),\n" ++
-            "                    [ts_encode_map(" ++ Cc ++ ") | Acc];\n" | Acc],
+            "                    [ts_encode(" ++ Cc ++ ") | Acc];\n" | Acc],
     decode_columns(Rest, Code);
 decode_columns([_Head | Rest], Acc) ->
     decode_columns(Rest, Acc).
