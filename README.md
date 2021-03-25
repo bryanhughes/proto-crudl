@@ -2,7 +2,7 @@
 ------
 An escript that generates protobuffers and Erlang CRUDL (Create, Read, Update, Delete, List/Lookup) based on your
 relational data model. The tool will generate code that supports either records or maps. The tool supports the 
-Erlang [gpb](https://github.com/tomas-abrahamsson/gpb) library, though not required. It also only currently support Postgres. 
+Erlang [gpb](https://github.com/tomas-abrahamsson/gpb) library, though not required. Currently, it only supports Postgres. 
 
 Aside from simple CRUDL, this tool allows you to generate functions based on any standard SQL query, lookups, and
 transformations. The custom mappings and transformations are very powerful. 
@@ -46,18 +46,7 @@ For FreeBSD
 <hr>
 
 # Download and install Rebar3
-The recommended way to install rebar3 is to simply fetch the escript from S3 and use the `install` feature to unpack 
-the escript to `~/.cache/rebar3/bin/rebar3`:
-
-```
-wget https://s3.amazonaws.com/rebar3/rebar3
-chmod +x rebar3
-./rebar3 local upgrade
-```
-
-You'll want to then add `~/.cache/rebar3/bin/` to your shell's `$PATH` in `~/.bashrc` or `~/.zshrc`.
-
-When updates to rebar3 are made you can update the install with `rebar3 local upgrade`.
+Please follow the [getting started instruction](https://rebar3.readme.io/docs/getting-started)
 
 <hr>
 
@@ -88,7 +77,8 @@ To start the docker service
     sudo snap start docker
     
 ## Setting Up Database For Building The Examples
-First, start the docker image in the examples sub directory and then create the Role and    Database
+First, start the docker image in the examples subdirectory and then create the `proto_crudl` Role and Database with 
+create database and superuser privileges and password `proto_crudl`.
 
     cd example
     docker-compose up
@@ -103,7 +93,7 @@ or you can try...
 
 
 ## Resetting the Example Database
-This helper script will allow you to rapidly drop and recreate your database
+This helper script will allow you to rapidly drop and recreate your database. This expects the role and database `proto_crudl`
 
     bin/reset_db.sh
 
@@ -126,8 +116,7 @@ or directly
 
 Test
 ----
-Several of the eunit tests rely on the presence of the example database. Unfortunately unit and functional tests are
-currently commingled.
+Several of the eunit tests rely on the presence of the example database. Currently unit and functional tests are commingled.
 
     rebar3 eunit
 
@@ -140,13 +129,7 @@ the code in the example schema, which is located in `example/database`. The sche
 **PLEASE NOTE:** You will see errors and warnings in the output. This is intentional as the example schema includes a
 lot of corner cases, like a table without a primary key and unsupported postgres types.
 
-## Running the eunit tests
-The eunit tests are inline with the code at the end of the modules. Several of them expect that proto_crudl database
-from the example directory to have been built.
-
-    rebar3 eunit
-    
-## Testing the Generated Code    
+### Testing the Generated Code    
 The example code also contains some tests that tests the results of the generated code. To run these tests They 
 are located in `example/apps/test/example_test.erl` and do full CRUDL test.
 
@@ -156,13 +139,12 @@ are located in `example/apps/test/example_test.erl` and do full CRUDL test.
 
 Please refer to these test to better understand how to use the generated code.
     
-Using proto_crudl
----
+# Using proto_crudl 
 Currently, I have not had time to write a github pull script for the `escript` executable 
 artifact: `_build/default/bin/proto_crudl`. At this time I manually copy the file to my project. So not build friendly
 just yet.
 
-# proto_crudl.config
+## proto_crudl.config
 You will want to look at [example/config/proto_crudl.config](example/config/proto_crudl.config) as a guide
 for your own config. It gives a complete example with inline documentation of the current functionality of the tool.
 
@@ -229,14 +211,14 @@ I would recommend that you build the example project and then review the generat
 understanding.
 
 ## The special version column
-The proto_crudl framework implements all the necessary code to support tracking changes to a table that with a version column. 
+The proto_crudl framework implements all the necessary code to support handling stale changes to a record with a version column. 
 
     {options, [{version_column, "version"}, indexed_lookups, check_constraints_as_enums]},
 
 In this example, the column is called `version`. When a table has this column, proto_crudl will generate code that will 
-automatically handle updating the column value on a good update, as well as guard against updating the table from a 
-stale map. If the current value of `version` is `100` and you attempt to update using a map that has the version value 
-of 90, the update will return with `notfound`, otherwise update returns `{ok, Map}`.
+automatically handle updating the column value on a good update, as well as guard against updating the record from a 
+stale update. If the current value of `version` is `100` and you attempt to update using a map or record that has the version value 
+of 90, the update will return with `notfound`, otherwise update returns `{ok, Map}` or `{ok, Record}` (depending on how you generated your code).
 
 If the column is not present, the tool will automatically inject the column into the table by performing an `ALERT TABLE ...`
 
@@ -261,7 +243,7 @@ update(_M) ->
     {error, invalid_map}.
 ```
 
-# erleans/pgo
+## erleans/pgo
 
 Finally, `proto_crudl` uses [erleans/pgo](https://github.com/erleans/pgo) for its Postgres connectivity (which is currently)
 the only supported database. If you want the pgo client to return UUID as binary strings, set an application environment
@@ -277,16 +259,15 @@ variable or in your sys.config:
 
 Size the pool according to your requirements.    
     
-Generating Protobuffers
----
-proto_crudl will generate protobuffers that map to the relational schema. 
+## Generating Protobuffers
 
-The package for each proto will be the schema that the table is located in the `.proto` files will be generated in 
+proto_crudl will generate a `.proto` that maps to each table in the schema (unless explicitly excluded). 
+
+The package for each proto will be the schema that the table is located in. The `.proto` files will be generated in 
 the `output` directory specified in the config file with those proto to table mappings being written to a subdirectory 
 that corresponds to the schema the table is in.  
 
-The tool will correctly generate proto files with foreign key relationships that cross schemas. Relational databases
-are inherently namespaced by schema. This means that when supporting multiple schemas, and the fact that Erlang has
+Relational databases are inherently namespaced by schema. This means that when supporting multiple schemas, and the fact that Erlang has
 no concept of namespaces, the module name will be the name of the table prepended by the schema name (if set in the config).
 Note that protobuffers are correctly generated where the schema maps to a package.
 
@@ -299,8 +280,7 @@ It is important to note that the default configuration is to use `gpb` to compil
 PLEASE NOTE: There is a bug that has been filed in `gpb` where protos of the same name in different packages will get 
 overwritten since there is no namespacing.
 
-Using In Your Project
----
+# Using In Your Project
 You will need to copy the `proto_crudl` escript to your project.
 
 Next, create your `proto_crudl.config`. You can simply copy and modify the one in the repo. Currently, I have a manual
@@ -314,19 +294,14 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 "$DIR"/proto_crudl "$DIR"/../config/proto_crudl.config
 ```
 
-### Using the Maps or Records
-
-*NOTE:* Sadly, `proto_crudl` is currently incomplete using `pgo` with records. When generating the code, `proto_crudl`
-expects to be able to get the table information. For custom queries, it needs to map the SELECT or RETURNING clause
-to a protobuffer. In record mode, this is a record. Unfortunately there is no easy way to describe a query to get the
-column data without actually seeding the database.
+## Using the Maps or Records
 
 `proto_crutl` supports code generation using both maps and records. It is important to note that there are several issues
 with using maps with `gpb` and `pgo` that do align very well when using together. 
 
 First `pgo` favors maps and uses the atom (as expected) `null` for NULL values. Unfortunately, here `gpb` seems to 
 favor records when serializing and deserializing, this is likely a bug. For now, `proto_crudl` generates code based on
-each libraries implemention support for maps and records. When using the maps config option with `gpb`, fields that are
+each library implementations support for maps and records. When using the `maps` config option with `gpb`, fields that are
 explicitly `undefined` are not handled properly and cause an exception as the library attempts to serialize them. The
 `gpb` generated code for records does not have this issue. As expected, `undefined` is treated as missing.
 
@@ -339,10 +314,3 @@ Because of the subtle misalignment between libraries, using maps requires the us
 to correctly convert the serialized protobuffers as maps as input values to queries. It also means that the developer
 has to handle `null` values from the `pgo` and ultimately `proto_crutl` and remember to convert to `undefined` when
 serializing. Maps are very flexible, but also very problematic.
-
-Records are not without their own problem, primarily when using the custom query mappings. For custom queries that
-operate directly on the table, everything is fine. The problem arises when the custom query returns a result set that
-does not conform to the tables record. 
-
-TODO: This will be fixed soon by describing custom queries and generating embedded messages in the .proto that will
-map to the resultset.
