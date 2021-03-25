@@ -24,6 +24,8 @@ generate_functions(postgres, FullPath, UsePackage, T = #table{schema = S, name =
                  end,
     ok = file:write_file(FullPath, ts_support(orddict:to_list(T#table.columns)), [append]),
     ok = file:write_file(FullPath, empty_record(RecordName, T), [append]),
+    Schema = proto_crudl_utils:to_string(T#table.schema),
+    ok = file:write_file(FullPath, custom_row_decoders(Schema, orddict:to_list(T#table.mappings), []), [append]),
     ok = file:write_file(FullPath, table_row_decoder(T), [append]),
     ok = file:write_file(FullPath, proto_crudl_psql:limit_fun(RecordName), [append]),
     ok = file:write_file(FullPath, proto_crudl_psql:create_fun(RecordName, T), [append]),
@@ -37,7 +39,7 @@ generate_functions(postgres, FullPath, UsePackage, T = #table{schema = S, name =
             ok = file:write_file(FullPath, proto_crudl_psql:delete_fun(RecordName, T), [append])
     end,
     ok = file:write_file(FullPath, proto_crudl_psql:list_lookup_fun(RecordName, T), [append]),
-    ok = file:write_file(FullPath, proto_crudl_psql:mappings_fun(RecordName, T), [append]);
+    ok = file:write_file(FullPath, proto_crudl_psql:mappings_fun(proto_crudl_utils:to_string(S), T), [append]);
 generate_functions(Provider, _FullPath, _UsePackage, _Table) ->
     io:format("ERROR: Provider ~p is not supported yet.~n", [Provider]),
     erlang:error(provider_not_supported).
@@ -84,7 +86,38 @@ empty_record(RecordName, Table) ->
     "new_default() ->\n"
     "    " ++ build_empty_record(true, RecordName, Table) ++ ".\n\n".
 
-% TODO: Put the custom query records mappings before
+%% NOTE: Custom queries can not map enumerations to and from valid values.
+custom_row_decoders(_SchemaName, [], Acc) ->
+    Acc;
+custom_row_decoders(SchemaName, [{_Key, #custom_query{name = Name, result_set = ResultSets}} | Rest], Acc) when is_list(SchemaName),
+                                                                                                                length(ResultSets) > 0 ->
+    RecordName = SchemaName ++ "." ++ proto_crudl_utils:camel_case(Name),
+    Code = "decode_row(Row, _Fields, ['" ++ RecordName ++ "']) ->\n"
+    "    F = fun(Field, Acc) ->\n"
+    "            case Field of\n" ++
+    decode_resultset(ResultSets, []) ++
+    "                _ ->\n"
+    "                    [case maps:get(Field, Row, undefined) of null -> undefined; V -> V end | Acc]\n"
+    "            end\n"
+    "        end,\n"
+    "    L = lists:reverse(lists:foldl(F, ['" ++ RecordName ++ "'], record_info(fields, '" ++ RecordName ++ "'))),\n"
+    "    list_to_tuple(L);\n",
+    custom_row_decoders(SchemaName, Rest, [Code | Acc]);
+custom_row_decoders(SchemaName, [_Head | Rest], Acc) when is_list(SchemaName) ->
+    custom_row_decoders(SchemaName, Rest, Acc).
+
+decode_resultset([], Acc) ->
+    lists:reverse(Acc);
+decode_resultset([#bind_var{name = Name, data_type = <<116, 105, 109, 101, 115, 116, 97, 109, 112, _Rest/binary>>} | Rest], Acc) ->
+    LowerName = proto_crudl_utils:to_string(Name),
+    CamelCase = proto_crudl_utils:camel_case(Name),
+    Code = "                " ++ LowerName ++ " ->\n" ++
+           "                    " ++ CamelCase ++ " = maps:get(" ++ LowerName ++ ", Row, undefined),\n" ++
+           "                    [ts_encode_map(" ++ CamelCase ++ ") | Acc];\n",
+    decode_resultset(Rest, [Code | Acc]);
+decode_resultset([_Head | Rest], Acc) ->
+    decode_resultset(Rest, Acc).
+
 table_row_decoder(#table{columns = ColDict, schema = S, name = N}) ->
     Columns = orddict:to_list(ColDict),
     RecordName = proto_crudl_utils:to_string(S) ++ "." ++ proto_crudl_utils:camel_case(N),
@@ -96,7 +129,7 @@ table_row_decoder(#table{columns = ColDict, schema = S, name = N}) ->
     "                    [case maps:get(Field, Row, undefined) of null -> undefined; V -> V end | Acc]\n"
     "            end\n"
     "        end,\n"
-    "    L = lists:reverse(lists:foldl(F, ['test_schema.User'], record_info(fields, '" ++ RecordName ++ "'))),\n"
+    "    L = lists:reverse(lists:foldl(F, ['" ++ RecordName ++ "'], record_info(fields, '" ++ RecordName ++ "'))),\n"
     "    list_to_tuple(L);\n"
     "decode_row(Row, _Fields, []) ->\n"
     "    Row.\n\n".

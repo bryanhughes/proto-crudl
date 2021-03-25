@@ -77,11 +77,11 @@
 -record(proto_map, {field_name :: binary(), column :: #column{}, relation :: #foreign_relation{}}).
 
 %% @doc The column name and data type of a bind parameter
--record(bind_var, {name :: binary(), data_type :: binary(), udt_name :: binary()}).
+-record(bind_var, {name :: binary(), data_type :: binary()}).
 
 %% @doc Describes a custom query. If the query is a SELECT statement, then the where_clause will contain the
 %%      bind variables data types as parsed from the query
--record(custom_query, {name :: string(), query :: string(), bind_vars = [#bind_var{}] :: [string()]}).
+-record(custom_query, {name :: string(), query :: string(), result_set = [#bind_var{}] :: [string()]}).
 
 -record(table, {name :: binary() | undefined,
                 schema :: binary() | undefined,

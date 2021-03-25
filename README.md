@@ -315,6 +315,12 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 ```
 
 ### Using the Maps or Records
+
+*NOTE:* Sadly, `proto_crudl` is currently incomplete using `pgo` with records. When generating the code, `proto_crudl`
+expects to be able to get the table information. For custom queries, it needs to map the SELECT or RETURNING clause
+to a protobuffer. In record mode, this is a record. Unfortunately there is no easy way to describe a query to get the
+column data without actually seeding the database.
+
 `proto_crutl` supports code generation using both maps and records. It is important to note that there are several issues
 with using maps with `gpb` and `pgo` that do align very well when using together. 
 

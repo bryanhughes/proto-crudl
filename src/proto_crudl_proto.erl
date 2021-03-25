@@ -182,8 +182,8 @@ write_custom_proto(Version, ProtoFile, _Table = #table{mappings = Mappings}) ->
 
 write_custom_message(_Version, [], Acc) ->
     lists:flatten(Acc);
-write_custom_message(Version, [{Key, #custom_query{bind_vars = BindVars}} | Rest], Acc) when length(BindVars) > 0 ->
-    {_FieldNo, LineList} = write_custom_fields(Version, BindVars),
+write_custom_message(Version, [{Key, #custom_query{result_set = ResultSets}} | Rest], Acc) when length(ResultSets) > 0 ->
+    {_FieldNo, LineList} = write_custom_fields(Version, ResultSets),
     Str = "message " ++ proto_crudl_utils:camel_case(Key) ++ "{\n" ++
           lists:reverse(LineList) ++
           "}\n\n",
@@ -191,12 +191,12 @@ write_custom_message(Version, [{Key, #custom_query{bind_vars = BindVars}} | Rest
 write_custom_message(Version, [_Head | Rest], Acc) ->
     write_custom_message(Version, Rest, Acc).
 
-write_custom_fields(Version, BindVars) ->
-    Fun1 = fun(#bind_var{name = Name, data_type = DataType, udt_name = UdtName}, {FieldNo, List}) ->
-                FieldType = proto_crudl_psql:sql_to_proto_datatype(UdtName),
-                Repeated = case DataType of
-                               <<"ARRAY">> -> "repeated ";
-                               _ -> case Version of "proto2" -> "optional "; _ -> "" end
+write_custom_fields(Version, ResultSets) ->
+    Fun1 = fun(#bind_var{name = Name, data_type = DataType}, {FieldNo, List}) ->
+                FieldType = proto_crudl_psql:sql_to_proto_datatype(DataType),
+                Repeated = case string:prefix(DataType, <<"{array">>) of
+                               nomatch -> case Version of "proto2" -> "optional "; _ -> "" end;
+                               _ -> "repeated "
                            end,
                 Line = "  " ++ Repeated ++ FieldType ++ " " ++ proto_crudl_utils:to_string(Name) ++ " = " ++
                        integer_to_list(FieldNo) ++ ";\n",
@@ -205,7 +205,7 @@ write_custom_fields(Version, BindVars) ->
                     false -> {FieldNo + 1, [Line | List]}
                 end
            end,
-    lists:foldl(Fun1, {1, []}, BindVars).
+    lists:foldl(Fun1, {1, []}, ResultSets).
 
 
 %%
@@ -220,21 +220,20 @@ write_custom_fields(Version, BindVars) ->
 
 first_test() ->
     logger:set_primary_config(level, info),
-    application:ensure_all_started(pgo),
-    application:set_env(pg_types, uuid_format, string),
-    pgo:start_pool(default, #{pool_size => 10,
-                              host => "127.0.0.1",
-                              port => 5432,
-                              database => "proto_crudl",
-                              user => "proto_crudl",
-                              password => "proto_crudl"}),
-
     ok.
 
 proto_test() ->
     ?LOG_INFO("====================== proto_test() START ======================"),
-    {ok, Database} = proto_crudl_psql:read_database([{schemas, ["public", "test_schema"]},
-                                                     {excluded, ["public.excluded", "spatial_ref_sys"]}]),
+
+    {ok, C} = epgsql:connect(#{host => "localhost",
+                               port => 5432,
+                               username => "proto_crudl",
+                               password => "proto_crudl",
+                               database => "proto_crudl",
+                               timeout => 4000}),
+
+    {ok, Database} = proto_crudl_psql:read_database(C, [{schemas, ["public", "test_schema"]},
+                                                        {excluded, ["public.excluded", "spatial_ref_sys"]}]),
 
     Configs = [
         {transforms, [
@@ -253,34 +252,21 @@ proto_test() ->
                           ]},
         {mapping, [
             {"test_schema.user", [
-                {get_pword_hash, "SELECT pword_hash FROM test_schema.user WHERE email = $1"},
-                {update_pword_hash, "UPDATE test_schema.user SET pword_hash = $2 WHERE email = $1"},
-                {reset_pword_hash, "UPDATE test_schema.user SET pword_hash = NULL WHERE email = $1"},
-                {disable_user, "UPDATE test_schema.user SET enabled = false WHERE email = $1"},
-                {enable_user, "UPDATE test_schema.user SET enabled = true WHERE email = $1"},
-                {delete_user_by_email, "DELETE FROM test_schema.user WHERE email = $1"},
-                {set_token, "UPDATE test_schema.user SET user_token = uuid_generate_v4() WHERE user_id = $1 RETURNING user_token"},
                 {find_nearest, "SELECT * FROM test_schema.user "
                                "WHERE ST_DWithin(geog, Geography(ST_MakePoint($1, $2)), $3) "
                                "ORDER BY geog <-> ST_POINT($1, $2)::geography"}
             ]}
                   ]}],
 
-    {ok, Database1} = proto_crudl:process_configs(Configs, Database),
+    {ok, Database1} = proto_crudl:process_configs(C, Configs, Database),
     TablesDict = Database1#database.tables,
     {ok, UserTable} = dict:find(<<"test_schema.user">>, TablesDict),
 
+    ?LOG_INFO("Mappings=~p", [UserTable#table.mappings]),
     Code = write_custom_message("proto2", orddict:to_list(UserTable#table.mappings), []),
     ?LOG_INFO("Code=~p", [Code]),
 
-    _Expected = "message FindNearest {
-  enum UserType {
-    _123FUN = 0;
-    BUSYGAL = 1;
-    BUSY_GUY = 2;
-    LITTLE_SHOT = 3;
-    BIG_SHOT = 4;
-  }
+    Expected = "message FindNearest{
   optional int64 user_id = 1;
   optional string first_name = 2;
   optional string last_name = 3;
@@ -289,17 +275,50 @@ proto_test() ->
   optional bool enabled = 6;
   optional int64 aka_id = 7;
   repeated int32 my_array = 8;
-  optional UserType user_type = 9;
+  optional string user_type = 9;
   optional int32 number_value = 10;
   optional google.protobuf.Timestamp created_on = 11;
   optional google.protobuf.Timestamp updated_on = 12;
   optional int64 due_date = 13;
-  optional int64 version = 14;
-  optional double lat = 15;
-  optional double lon = 16;
-}",
+  optional double lat = 14;
+  optional double lon = 15;
+}\n\n",
+    ?assertEqual(Expected, Code),
+
+    ok = epgsql:close(C),
+
     ?LOG_INFO("====================== proto_test() END ======================"),
     ok.
 
+cleanup_version(_C, []) ->
+    ok;
+cleanup_version(C, [{_Key, T0} | Rest]) ->
+    Alter = "ALTER TABLE " ++ binary_to_list(T0#table.schema) ++ "." ++ binary_to_list(T0#table.name) ++
+                                                                        " DROP COLUMN version",
+    case epgsql:squery(C, Alter) of
+        {ok, _Fields, _Rows} ->
+            cleanup_version(C, Rest);
+        {error, Reason} ->
+            io:format("    WARNING: Failed to get alter table ~p.~p. Reason=~p, Stmt=~p~n",
+                      [T0#table.schema, T0#table.name, Reason, Alter]),
+            ok
+    end.
+
+last_test() ->
+    ?LOG_INFO("====================== CLEANING UP VERSION COLUMNS ======================"),
+
+    {ok, C} = epgsql:connect(#{host => "localhost",
+                               port => 5432,
+                               username => "proto_crudl",
+                               password => "proto_crudl",
+                               database => "proto_crudl",
+                               timeout => 4000}),
+
+    {ok, Database} = proto_crudl_psql:read_database(C, [{schemas, ["public", "test_schema"]},
+                                                        {excluded, ["public.excluded", "spatial_ref_sys"]}]),
+
+    TablesDict = Database#database.tables,
+    ok = cleanup_version(C, dict:to_list(TablesDict)),
+    ok = epgsql:close(C).
 
 -endif.

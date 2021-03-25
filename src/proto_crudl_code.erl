@@ -824,15 +824,6 @@ maybe_expand_sql(#table{columns = ColDict, select_list = SelectList}, Query) ->
 
 first_test() ->
     logger:set_primary_config(level, info),
-    application:ensure_all_started(pgo),
-    application:set_env(pg_types, uuid_format, string),
-    pgo:start_pool(default, #{pool_size => 10,
-                              host => "127.0.0.1",
-                              port => 5432,
-                              database => "proto_crudl",
-                              user => "proto_crudl",
-                              password => "proto_crudl"}),
-
     ok.
 
 is_lookuplist_test() ->
@@ -847,8 +838,15 @@ is_lookuplist_test() ->
 define_test() ->
     ?LOG_INFO("====================== define_test() START ======================"),
 
-    {ok, Database} = proto_crudl_psql:read_database([{schemas, ["public", "test_schema"]},
-                                                   {excluded, ["public.excluded", "spatial_ref_sys"]}]),
+    {ok, C} = epgsql:connect(#{host => "localhost",
+                               port => 5432,
+                               username => "proto_crudl",
+                               password => "proto_crudl",
+                               database => "proto_crudl",
+                               timeout => 4000}),
+
+    {ok, Database} = proto_crudl_psql:read_database(C, [{schemas, ["public", "test_schema"]},
+                                                        {excluded, ["public.excluded", "spatial_ref_sys"]}]),
 
     Configs = [
         {transforms, [
@@ -874,13 +872,13 @@ define_test() ->
                 {enable_user, "UPDATE test_schema.user SET enabled = true WHERE email = $1"},
                 {delete_user_by_email, "DELETE FROM test_schema.user WHERE email = $1"},
                 {set_token, "UPDATE test_schema.user SET user_token = uuid_generate_v4() WHERE user_id = $1 RETURNING user_token"},
-                {find_nearest, "SELECT *, ST_X(geog::geometry) AS lon, ST_Y(geog::geometry) AS lat FROM address "
-                               "WHERE ST_DWithin( geog, Geography(ST_MakePoint($1, $2)), $3 ) AND lat != 0.0 AND lng != 0.0 "
+                {find_nearest, "SELECT *, ST_X(geog::geometry) AS lon, ST_Y(geog::geometry) AS lat FROM test_schema.user "
+                               "WHERE ST_DWithin( geog, Geography(ST_MakePoint($1, $2)), $3 ) "
                                "ORDER BY geog <-> ST_POINT($1, $2)::geography"}
             ]}
         ]}],
 
-    {ok, Database1} = proto_crudl:process_configs(Configs, Database),
+    {ok, Database1} = proto_crudl:process_configs(C, Configs, Database),
     TablesDict = Database1#database.tables,
     {ok, UserTable} = dict:find(<<"test_schema.user">>, TablesDict),
 
@@ -917,6 +915,8 @@ define_test() ->
     ExpandedAssert = "SELECT user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon FROM test_schema.user",
     ?assertEqual(ExpandedAssert, ExpandedOutput),
 
+    ok = epgsql:close(C),
+
     ?LOG_INFO("====================== define_test() END ======================"),
     ok.
 
@@ -924,8 +924,15 @@ define_test() ->
 inject_version_test() ->
     ?LOG_INFO("====================== inject_version_test() START ======================"),
 
-    {ok, Database} = proto_crudl_psql:read_database([{schemas, ["public", "test_schema"]},
-                                                     {excluded, ["public.excluded", "spatial_ref_sys"]}]),
+    {ok, C} = epgsql:connect(#{host => "localhost",
+                               port => 5432,
+                               username => "proto_crudl",
+                               password => "proto_crudl",
+                               database => "proto_crudl",
+                               timeout => 4000}),
+
+    {ok, Database} = proto_crudl_psql:read_database(C, [{schemas, ["public", "test_schema"]},
+                                                        {excluded, ["public.excluded", "spatial_ref_sys"]}]),
 
     Configs = [
         {options, [{version_column, "version"}, indexed_lookups, check_constraints_as_enums]},
@@ -941,7 +948,7 @@ inject_version_test() ->
         ]},
         {exclude_columns, [{"test_schema.user", ["pword_hash", "geog"]}]}],
 
-    {ok, Database1} = proto_crudl:process_configs(Configs, Database),
+    {ok, Database1} = proto_crudl:process_configs(C, Configs, Database),
     TablesDict = Database1#database.tables,
     {ok, UserTable} = dict:find(<<"test_schema.user">>, TablesDict),
 
@@ -1005,17 +1012,19 @@ inject_version_test() ->
     ExpectedParam0 = "[UserId, FirstName, LastName, Email, UserToken, Enabled, AkaId, MyArray, user_type_value(UserType), NumberValue, ts_decode_map(CreatedOn), ts_decode_map(UpdatedOn), DueDate, Version, Lat, Lon]",
     ?assertEqual(ExpectedParam0, Param0),
 
+    ok = epgsql:close(C),
+
     ?LOG_INFO("====================== inject_version_test() END ======================"),
     ok.
 
-cleanup_version([]) ->
+cleanup_version(_C, []) ->
     ok;
-cleanup_version([{_Key, T0} | Rest]) ->
+cleanup_version(C, [{_Key, T0} | Rest]) ->
     Alter = "ALTER TABLE " ++ binary_to_list(T0#table.schema) ++ "." ++ binary_to_list(T0#table.name) ++
                                                                         " DROP COLUMN version",
-    case pgo:query(Alter, [], #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}]}) of
-        #{command := alter, num_rows := table, rows := []} ->
-            cleanup_version(Rest);
+    case epgsql:squery(C, Alter) of
+        {ok, _Fields, _Rows} ->
+            cleanup_version(C, Rest);
         {error, Reason} ->
             io:format("    WARNING: Failed to get alter table ~p.~p. Reason=~p, Stmt=~p~n",
                       [T0#table.schema, T0#table.name, Reason, Alter]),
@@ -1024,10 +1033,19 @@ cleanup_version([{_Key, T0} | Rest]) ->
 
 last_test() ->
     ?LOG_INFO("====================== CLEANING UP VERSION COLUMNS ======================"),
-    {ok, Database} = proto_crudl_psql:read_database([{schemas, ["public", "test_schema"]},
-                                                   {excluded, ["public.excluded", "spatial_ref_sys"]}]),
+
+    {ok, C} = epgsql:connect(#{host => "localhost",
+                               port => 5432,
+                               username => "proto_crudl",
+                               password => "proto_crudl",
+                               database => "proto_crudl",
+                               timeout => 4000}),
+
+    {ok, Database} = proto_crudl_psql:read_database(C, [{schemas, ["public", "test_schema"]},
+                                                        {excluded, ["public.excluded", "spatial_ref_sys"]}]),
 
     TablesDict = Database#database.tables,
-    ok = cleanup_version(dict:to_list(TablesDict)).
+    ok = cleanup_version(C, dict:to_list(TablesDict)),
+    ok = epgsql:close(C).
 
 -endif.

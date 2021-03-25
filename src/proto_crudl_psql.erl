@@ -12,10 +12,10 @@
 -include("proto_crudl.hrl").
 
 %% API
--export([read_database/1, is_int64/1, is_int32/1, is_sql_float/1, read_columns/2, read_table/3,
+-export([read_database/2, is_int64/1, is_int32/1, is_sql_float/1, read_columns/3, read_table/4,
          sql_to_proto_datatype/1, count_params/1, limit_fun/1, read_or_create_fun/1, create_fun/2,
          default_value/1, read_fun/2, update_fun/2, delete_fun/2, mappings_fun/2, list_lookup_fun/2,
-         sql_to_erlang_datatype/1, create_defaults_record_fun/4, is_timestamp/1, random_value/1, read_temp_view/0]).
+         sql_to_erlang_datatype/1, create_defaults_record_fun/4, is_timestamp/1, random_value/1]).
 
 -define(READ_TABLES, "SELECT
         t.table_schema,
@@ -121,19 +121,6 @@
         AND ccu.table_schema = $1
         AND ccu.table_name = $2").
 
--define(READ_TEMP_VIEW, "SELECT
-  vcu.column_name,
-  c.data_type,
-  c.udt_name::regtype::text
-FROM
-  information_schema.view_column_usage vcu
-  JOIN information_schema.columns c ON
-    c.table_schema = vcu.table_schema AND
-    c.table_name = vcu.table_name AND
-    c.column_name = vcu.column_name
-WHERE
-  vcu.view_name = 'proto_crudl_desc'").
-
 -define(MONEY, <<"money">>).
 -define(FLOAT, <<"float">>).
 -define(NUMERIC, <<"numeric">>).
@@ -153,19 +140,19 @@ WHERE
 -define(SERIAL, <<"serial">>).
 
 
--spec read_database(Generator :: list()) -> {ok, #database{}} | {error, Reason :: any()}.
+-spec read_database(Conn :: pid(), Generator :: list()) -> {ok, #database{}} | {error, Reason :: any()}.
 %% @doc Reads the information tables and returns a map of schemas keyed by the schema name
-read_database(Generator = [{schemas, Schemas} | _Rest]) ->
-    case read_schemas(Generator, Schemas, dict:new()) of
+read_database(C, Generator = [{schemas, Schemas} | _Rest]) ->
+    case read_schemas(C, Generator, Schemas, dict:new()) of
         {ok, TableDict} -> {ok, #database{tables = TableDict}};
         {error, Reason} -> {error, Reason}
     end.
 
--spec read_schemas(Generator :: list(), Schemas :: list(), TablesDict :: dict:dict()) ->
+-spec read_schemas(Conn :: pid(), Generator :: list(), Schemas :: list(), TablesDict :: dict:dict()) ->
     {ok, dict:dict()} | {error, Reason :: any()}.
-read_schemas(_Generator, [], TablesDict) ->
+read_schemas(_C, _Generator, [], TablesDict) ->
     {ok, TablesDict};
-read_schemas(Generator, [Schema | Rest], TablesDict) ->
+read_schemas(C, Generator, [Schema | Rest], TablesDict) ->
     Excluded = proplists:get_value(excluded, Generator),
     Options = proplists:get_value(options, Generator, []),
     VersionColumn = proto_crudl_utils:to_binary(proplists:get_value(version_column, Options, <<>>)),
@@ -177,15 +164,15 @@ read_schemas(Generator, [Schema | Rest], TablesDict) ->
     FixedQuery = lists:flatten(string:replace(?READ_TABLES, "$2", ExcludedTables2)),
     io:format("Schema: ~p~n", [Schema]),
 
-    case pgo:query(FixedQuery, [list_to_binary(Schema)], #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}]}) of
-        #{command := select, num_rows := 0, rows := []} ->
+    case epgsql:equery(C, FixedQuery, [Schema]) of
+        {ok, _Cols, []} ->
             io:format("WARNING: No tables found in schema ~p~n", [Schema]),
-            read_schemas(Generator, Rest, TablesDict);
-        #{command := select, rows := Rows} ->
+            read_schemas(C, Generator, Rest, TablesDict);
+        {ok, _Cols, Rows} ->
             io:format("Processing ~p tables in schema ~p~n", [length(Rows), Schema]),
-            case process_tables(Rows, TablesDict, VersionColumn) of
+            case process_tables(C, Rows, TablesDict, VersionColumn) of
                 {ok, TablesDict1} ->
-                    read_schemas(Generator, Rest, TablesDict1)
+                    read_schemas(C, Generator, Rest, TablesDict1)
             end;
         {error, Reason} ->
             io:format(
@@ -194,30 +181,30 @@ read_schemas(Generator, [Schema | Rest], TablesDict) ->
             {error, Reason}
     end.
 
--spec process_tables(Rows :: list(), dict:dict(), binary()) -> {ok, dict:dict()}.
+-spec process_tables(Conn :: pid(), Rows :: list(), dict:dict(), binary()) -> {ok, dict:dict()}.
 %% @doc For each table in the results, this function will read the columns, indexes, and check constraints
-process_tables([], TablesDict, _VersionColumn) ->
+process_tables(_C, [], TablesDict, _VersionColumn) ->
     {ok, TablesDict};
-process_tables([#{table_name := T, table_schema := S} | Rest], TablesDict, VersionColumn) ->
+process_tables(C, [{S, T} | Rest], TablesDict, VersionColumn) ->
     io:format("Table: ~p.~p~n", [S, T]),
-    case read_table(proto_crudl_utils:to_binary(S), proto_crudl_utils:to_binary(T), VersionColumn) of
+    case read_table(C, proto_crudl_utils:to_binary(S), proto_crudl_utils:to_binary(T), VersionColumn) of
         {ok, Table} ->
             FQN = proto_crudl:make_fqn(Table),
-            process_tables(Rest, dict:store(FQN, Table, TablesDict), VersionColumn);
+            process_tables(C, Rest, dict:store(FQN, Table, TablesDict), VersionColumn);
         {error, Reason} ->
             io:format("    ERROR: Failed to read columns for table ~p.~p. Reason=~p~n", [S, T, Reason]),
             {error, Reason}
     end.
 
--spec read_table(binary(), binary(), binary()) -> {ok, #table{}} | {error, Reason :: any()}.
-read_table(Schema, Name, VersionColumn) ->
-    case read_columns(#table{name = Name, schema = Schema}, VersionColumn) of
+-spec read_table(pid(), binary(), binary(), binary()) -> {ok, #table{}} | {error, Reason :: any()}.
+read_table(C, Schema, Name, VersionColumn) ->
+    case read_columns(C, #table{name = Name, schema = Schema}, VersionColumn) of
         {ok, T0} ->
-            case read_indexes(T0) of
+            case read_indexes(C, T0) of
                 {ok, T1} ->
-                    case read_relationships(T1) of
+                    case read_relationships(C, T1) of
                         {ok, T2} ->
-                            read_constraints(T2);
+                            read_constraints(C, T2);
                         {error, Reason} ->
                             io:format("    ERROR: Failed to read foriegn key relations for table ~p.~p. Reason=~p~n",
                                       [Schema, Name, Reason]),
@@ -232,14 +219,13 @@ read_table(Schema, Name, VersionColumn) ->
             {error, Reason}
     end.
 
--spec read_columns(#table{}, binary()) -> {ok, #table{}} | {error, Reason :: any()}.
-read_columns(T0 = #table{name = N, schema = S}, VersionColumn) ->
-    case pgo:query(?READ_COLUMNS, [S, N],
-                   #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}]}) of
-        #{command := select, num_rows := 0, rows := []} ->
+-spec read_columns(pid(), #table{}, binary()) -> {ok, #table{}} | {error, Reason :: any()}.
+read_columns(C, T0 = #table{name = N, schema = S}, VersionColumn) ->
+    case epgsql:equery(C, ?READ_COLUMNS, [S, N]) of
+        {ok, _Fields, []} ->
             io:format("    INFO: No columns found for table ~p.~p~n", [S, N]),
             {ok, T0};
-        #{command := select, rows := Rows} ->
+        {ok, _Fields, Rows} ->
             case process_columns(T0, VersionColumn, Rows) of
                 {ok, T1} ->
                     {ok, T1}
@@ -254,9 +240,7 @@ read_columns(T0 = #table{name = N, schema = S}, VersionColumn) ->
     {ok, #table{}} | {error, Reason :: any()}.
 process_columns(Table, _VersionColumn, []) ->
     {ok, Table};
-process_columns(Table, VersionColumn, [#{column_name := CN, ordinal_position := OP, data_type := DT, udt_name := UN,
-                                         column_default := CD, is_nullable := IN, is_pkey := IP,
-                                         is_seq := IS} | Rest]) ->
+process_columns(Table, VersionColumn, [{CN, OP, DT, UN, CD, IN, IP, IS} | Rest]) ->
     IN0 = case IN of <<"YES">> -> true; <<"NO">> -> false end,
     IsVersion = VersionColumn == CN,
     Col = #column{table_name  = Table#table.name, table_schema = Table#table.schema, name = CN, ordinal_position = OP,
@@ -287,14 +271,13 @@ process_columns(Table, VersionColumn, [#{column_name := CN, ordinal_position := 
                                 pkey_list      = PkList,
                                 default_list   = DefaultList}, VersionColumn, Rest).
 
--spec read_indexes(#table{}) -> {ok, #table{}} | {error, Reason :: any()}.
-read_indexes(T0 = #table{name = N, schema = S}) ->
-    case pgo:query(?READ_INDEXES, [S, N],
-                   #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}]}) of
-        #{command := select, num_rows := 0, rows := []} ->
+-spec read_indexes(pid(), #table{}) -> {ok, #table{}} | {error, Reason :: any()}.
+read_indexes(C, T0 = #table{name = N, schema = S}) ->
+    case epgsql:equery(C, ?READ_INDEXES, [S, N]) of
+        {ok, _Fields, []} ->
             io:format("    INFO: No indexes found for table ~p.~p~n", [S, N]),
             {ok, T0};
-        #{command := select, rows := Rows} ->
+        {ok, _Fields, Rows} ->
             case process_indexes(undefined, S, N, Rows, []) of
                 {ok, Indexes} ->
                     {ok, T0#table{indexes = Indexes}}
@@ -307,18 +290,15 @@ read_indexes(T0 = #table{name = N, schema = S}) ->
     end.
 
 -spec process_indexes(CurrentIdx :: #index{} | undefined, Schema :: binary(), Table :: binary(), Rows :: list(),
-                      IndexList :: list()) ->
-    {ok, [#index{}]} | {error, Reason :: any()}.
+                      IndexList :: list()) -> {ok, [#index{}]} | {error, Reason :: any()}.
 process_indexes(Idx, _S, _T, [], IndexList) when is_record(Idx, index) ->
     io:format("    Index: ~p  ~0p (~p, is_list = ~p, is_lookup = ~p)~n",
         [Idx#index.name, Idx#index.columns, Idx#index.type, Idx#index.is_list, Idx#index.is_lookup]),
     {ok, [Idx | IndexList]};
-process_indexes(Idx = #index{name = IN, columns = Cols}, S, T,
-                [#{index_name := IN, column_name := CN} | Rest], IdxDict) when is_record(Idx, index) ->
+process_indexes(Idx = #index{name = IN, columns = Cols}, S, T, [{IN, CN, _, _, _} | Rest], IdxDict) when is_record(Idx, index) ->
     % As long as the name of the result set equals the index, then add to it...
     process_indexes(Idx#index{columns = [CN | Cols]}, S, T, Rest, IdxDict);
-process_indexes(Idx, S, T, [#{index_name := IN, column_name := CN, is_unique := IU, is_pkey := IP,
-                              comment := IC} | Rest], IndexList) ->
+process_indexes(Idx, S, T, [{IN, CN, IU, IP, IC} | Rest], IndexList) ->
     % If the name does not match, then if this is not the first iteration, then save the record and start on the next
     Type = case IP of
                true -> primary_key;
@@ -340,15 +320,13 @@ process_indexes(Idx, S, T, [#{index_name := IN, column_name := CN, is_unique := 
             process_indexes(NewIdx, S, T, Rest, [Idx#index{columns = lists:reverse(Idx#index.columns)} | IndexList])
     end.
 
--spec read_relationships(#table{}) -> {ok, #table{}} | {error, Reason :: any()}.
-read_relationships(T0 = #table{name = N, schema = S}) ->
-    case pgo:query(
-        ?READ_FOREIGN_RELATIONSHIPS, [S, N],
-        #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}]}) of
-        #{command := select, num_rows := 0, rows := []} ->
+-spec read_relationships(pid(), #table{}) -> {ok, #table{}} | {error, Reason :: any()}.
+read_relationships(C, T0 = #table{name = N, schema = S}) ->
+    case epgsql:equery(C, ?READ_FOREIGN_RELATIONSHIPS, [S, N]) of
+        {ok, _Fields, []} ->
             io:format("    INFO: No foreign relationships found for table ~p.~p~n", [S, N]),
             {ok, T0};
-        #{command := select, rows := Rows} ->
+        {ok, _Fields, Rows} ->
             case process_relationships(undefined, S, N, Rows, []) of
                 {ok, Relations} ->
                     {ok, T0#table{relations = Relations}}
@@ -368,13 +346,11 @@ process_relationships(Rel, _S, _T, [], Relations) ->
                                              Rel#foreign_relation.foreign_columns]),
     {ok, [Rel | Relations]};
 process_relationships(Rel = #foreign_relation{foreign_schema = FS, foreign_table = FT, foreign_columns = FCols}, S, T,
-    [#{foreign_schema := FS, foreign_table := FT, foreign_column := FC, ordinal_position := OP,
-       local_column := LC} | Rest], Relations) when is_record(Rel, foreign_relation) ->
+    [{FS, FT, FC, OP, LC} | Rest], Relations) when is_record(Rel, foreign_relation) ->
     % If the foreign table and schema are the same, then add the column mapping
     FCol = #foreign_column{foreign_name = FC, local_name = LC, ordinal_position = OP},
     process_relationships(Rel#foreign_relation{foreign_columns = [FCol | FCols]}, S, T, Rest, Relations);
-process_relationships(Rel, S, T, [#{foreign_schema := FS, foreign_table := FT, foreign_column := FC, ordinal_position := OP,
-                                    local_column := LC} | Rest], Relations) ->
+process_relationships(Rel, S, T, [{FS, FT, FC, LC, OP} | Rest], Relations) ->
     FCol = #foreign_column{foreign_name = FC, local_name = LC, ordinal_position = OP},
     NewRel = #foreign_relation{foreign_schema = FS, foreign_table = FT, foreign_columns = [FCol]},
     case Rel of
@@ -387,14 +363,13 @@ process_relationships(Rel, S, T, [#{foreign_schema := FS, foreign_table := FT, f
             process_relationships(NewRel, S, T, Rest, [Rel | Relations])
     end.
 
--spec read_constraints(#table{}) -> {ok, #table{}} | {error, Reason :: any()}.
-read_constraints(T0 = #table{name = N, schema = S}) ->
-    case pgo:query(?READ_CHECK_CONSTRAINTS, [S, N], #{decode_opts => [{return_rows_as_maps, true},
-                                                                      {column_name_as_atom, true}]}) of
-        #{command := select, num_rows := 0, rows := []} ->
+-spec read_constraints(pid(), #table{}) -> {ok, #table{}} | {error, Reason :: any()}.
+read_constraints(C, T0 = #table{name = N, schema = S}) ->
+    case epgsql:equery(C, ?READ_CHECK_CONSTRAINTS, [S, N]) of
+        {ok, _Fields, []} ->
             io:format("    INFO: No check contraints found for table ~p.~p~n", [S, N]),
             {ok, T0};
-        #{command := select, rows := Rows} ->
+        {ok, _Fields, Rows} ->
             process_constraints(S, N, Rows, T0);
         {error, Reason} ->
             io:format(
@@ -405,7 +380,7 @@ read_constraints(T0 = #table{name = N, schema = S}) ->
 
 process_constraints(_S, _N, [], T) ->
     {ok, T};
-process_constraints(S, N, [#{constraint := Const} | Rest], T0) ->
+process_constraints(S, N, [{Const} | Rest], T0) ->
     % We need to parse the constraint:
     %  CHECK ((number_value > 1))
     %  CHECK (((user_type)::text = ANY ((ARRAY['BIG SHOT'::character varying, 'LITTLE-SHOT'::character varying,
@@ -453,20 +428,6 @@ parse_constraints(in_array, [{atom, 1, Value} | Rest], ValidValues) ->
     end;
 parse_constraints(State, [_Head | Rest], ValidValues) ->
     parse_constraints(State, Rest, ValidValues).
-
-read_temp_view() ->
-    case pgo:query(?READ_TEMP_VIEW, [], #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}]}) of
-        #{command := select, num_rows := 0, rows := []} ->
-            io:format("    INFO: No columns found for temporary view.~n", []),
-            {ok, []};
-        #{command := select, rows := Rows} ->
-            {ok, Rows};
-        {error, Reason} ->
-            io:format("    ERROR: Failed to get columns for temporary view. Reason=~p, Stmt=~p~n",
-                      [Reason, ?READ_TEMP_VIEW]),
-            {error, Reason}
-    end.
-
 
 -spec is_int64(binary()) -> boolean().
 is_int64(?BIGINT) ->
@@ -522,6 +483,8 @@ sql_to_erlang_datatype(<<"bigint">>) ->
     "integer";
 sql_to_erlang_datatype(<<"bigint[]">>) ->
     "integer";
+sql_to_erlang_datatype(<<"{array,int8}">>) ->
+    "integer";
 sql_to_erlang_datatype(<<"int8">>) ->
     "integer";
 sql_to_erlang_datatype(<<"bigserial">>) ->
@@ -535,12 +498,16 @@ sql_to_erlang_datatype(<<"boolean">>) ->
     "boolean";
 sql_to_erlang_datatype(<<"boolean[]">>) ->
     "boolean";
+sql_to_erlang_datatype(<<"{array,boolean}">>) ->
+    "boolean";
 sql_to_erlang_datatype({regtype, <<0, 0, 3, 232>>}) ->
     "boolean";
-sql_to_erlang_datatype("bool") ->
+sql_to_erlang_datatype(<<"bool">>) ->
     "boolean";
 sql_to_erlang_datatype(<<"bytea">>) ->
     "binary";
+sql_to_erlang_datatype(<<"varchar">>) ->
+    "string";
 sql_to_erlang_datatype(<<"character varying">>) ->
     "string";
 sql_to_erlang_datatype(<<"character varying[]">>) ->
@@ -563,6 +530,8 @@ sql_to_erlang_datatype({regtype, <<0, 0, 0, 23>>}) ->
 sql_to_erlang_datatype(<<"integer">>) ->
     "integer";
 sql_to_erlang_datatype(<<"integer[]">>) ->
+    "integer";
+sql_to_erlang_datatype(<<"{array,int4}}">>) ->
     "integer";
 sql_to_erlang_datatype(<<"int">>) ->
     "integer";
@@ -593,6 +562,8 @@ sql_to_erlang_datatype(<<"smallint">>) ->
     "integer";
 sql_to_erlang_datatype(<<"smallint[]">>) ->
     "integer";
+sql_to_erlang_datatype(<<"{array,int2}">>) ->
+    "integer";
 sql_to_erlang_datatype(<<"int2">>) ->
     "integer";
 sql_to_erlang_datatype(<<"smallserial">>) ->
@@ -602,6 +573,8 @@ sql_to_erlang_datatype(<<"serial">>) ->
 sql_to_erlang_datatype(<<"text">>) ->
     "string";
 sql_to_erlang_datatype(<<"text[]">>) ->
+    "string";
+sql_to_erlang_datatype(<<"{array,text}">>) ->
     "string";
 sql_to_erlang_datatype({regtype, <<0, 0, 3, 241>>}) ->
     % text[]
@@ -625,6 +598,8 @@ sql_to_proto_datatype(<<"bigint">>) ->
     "int64";
 sql_to_proto_datatype(<<"bigint[]">>) ->
     "int64";
+sql_to_proto_datatype(<<"{array,int8}">>) ->
+    "int64";
 sql_to_proto_datatype(<<"int8">>) ->
     "int64";
 sql_to_proto_datatype(<<"bigserial">>) ->
@@ -638,12 +613,16 @@ sql_to_proto_datatype(<<"boolean">>) ->
     "bool";
 sql_to_proto_datatype(<<"boolean[]">>) ->
     "bool";
+sql_to_proto_datatype(<<"{array,boolean}">>) ->
+    "bool";
 sql_to_proto_datatype({regtype, <<0, 0, 3, 232>>}) ->
     "bool";
-sql_to_proto_datatype("bool") ->
+sql_to_proto_datatype(<<"bool">>) ->
     "bool";
 sql_to_proto_datatype(<<"bytea">>) ->
     "bytes";
+sql_to_proto_datatype(<<"varchar">>) ->
+    "string";
 sql_to_proto_datatype(<<"character varying">>) ->
     "string";
 sql_to_proto_datatype(<<"character varying[]">>) ->
@@ -666,6 +645,8 @@ sql_to_proto_datatype({regtype, <<0, 0, 0, 23>>}) ->
 sql_to_proto_datatype(<<"integer">>) ->
     "int32";
 sql_to_proto_datatype(<<"integer[]">>) ->
+    "int32";
+sql_to_proto_datatype(<<"{array,int4}">>) ->
     "int32";
 sql_to_proto_datatype(<<"int">>) ->
     "int32";
@@ -696,6 +677,8 @@ sql_to_proto_datatype(<<"smallint">>) ->
     "int32";
 sql_to_proto_datatype(<<"smallint[]">>) ->
     "int32";
+sql_to_proto_datatype(<<"{array,int2}">>) ->
+    "int32";
 sql_to_proto_datatype(<<"int2">>) ->
     "int32";
 sql_to_proto_datatype(<<"smallserial">>) ->
@@ -705,6 +688,8 @@ sql_to_proto_datatype(<<"serial">>) ->
 sql_to_proto_datatype(<<"text">>) ->
     "string";
 sql_to_proto_datatype(<<"text[]">>) ->
+    "string";
+sql_to_proto_datatype(<<"{array,text}">>) ->
     "string";
 sql_to_proto_datatype({regtype, <<0, 0, 3, 241>>}) ->
     % text[]
@@ -923,7 +908,7 @@ create_defaults_record_fun(#table{default_list = DL}, _RecordName, _DRecord, _DP
 create_defaults_record_fun(_Table, RecordName, DRecord, DParam) ->
     "create(R = " ++ DRecord ++ ") when is_record(R, " ++ RecordName ++ ") ->\n" ++
     "    Params = " ++ DParam ++ ",\n"
-    "    case pgo:query(?INSERT_DEFAULTS, Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
+    "    case pgo:query(?INSERT_DEFAULTS, Params, #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := insert, num_rows := 0} ->\n"
     "            {error, failed_to_insert};\n"
     "        #{command := insert, num_rows := 1, rows := [Row]} ->\n"
@@ -1154,18 +1139,25 @@ mapping_fun(undefined, [{Name, #custom_query{query = Query}} | Rest], Acc) ->
     "            {error, Reason}\n"
     "    end.",
     mapping_fun(undefined, Rest, [S | Acc]);
-mapping_fun(RecordName, [{Name, #custom_query{query = Query}} | Rest], Acc) ->
+mapping_fun(RecordPrefix, [{Name, #custom_query{query = Query, result_set = RS}} | Rest], Acc) ->
     Cnt = count_params(Query),
+    FunParams = case length(RS) of
+                    0 ->
+                        "";
+                    _ ->
+                        RecordName = "'" ++ RecordPrefix ++ "." ++ proto_crudl_utils:camel_case(Name) ++ "'",
+                        "{decode_fun_params, [" ++ RecordName ++ "]},"
+                end,
     Params = lists:flatten(lists:join(", ", ["Value" ++ integer_to_list(C) || C <- lists:seq(1, Cnt)])),
     S = proto_crudl_utils:to_string(Name) ++ "(" ++ Params ++ ") ->\n"
     "    Params = [" ++ Params ++ "],\n"
-    "    case pgo:query(?" ++ string:to_upper(atom_to_list(Name)) ++ ", Params, #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
+    "    case pgo:query(?" ++ string:to_upper(atom_to_list(Name)) ++ ", Params, #{decode_opts => [" ++ FunParams ++ "{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{num_rows := NRows, rows := Rows} ->\n"
     "            {ok, NRows, Rows};\n"
     "        {error, Reason} ->\n"
     "            {error, Reason}\n"
     "    end.",
-    mapping_fun(RecordName, Rest, [S | Acc]).
+    mapping_fun(RecordPrefix, Rest, [S | Acc]).
 
 %%
 %% Tests
@@ -1179,21 +1171,20 @@ mapping_fun(RecordName, [{Name, #custom_query{query = Query}} | Rest], Acc) ->
 first_test() ->
     application:ensure_all_started(logger),
     logger:set_primary_config(level, info),
-
-    application:ensure_all_started(pgo),
-    application:set_env(pg_types, uuid_format, string),
-    pgo:start_pool(default, #{pool_size => 10,
-                              host => "127.0.0.1",
-                              database => "proto_crudl",
-                              user => "proto_crudl",
-                              password => "proto_crudl"}),
     ok.
 
 read_database_test() ->
     ?LOG_INFO("====================== read_database_test() END ======================"),
 
-    {ok, Database} = read_database([{schemas, ["public", "test_schema"]},
-                                    {excluded, ["public.excluded", "spatial_ref_sys"]}]),
+    {ok, C} = epgsql:connect(#{host => "localhost",
+                               port => 5432,
+                               username => "proto_crudl",
+                               password => "proto_crudl",
+                               database => "proto_crudl",
+                               timeout => 4000}),
+
+    {ok, Database} = read_database(C, [{schemas, ["public", "test_schema"]},
+                                       {excluded, ["public.excluded", "spatial_ref_sys"]}]),
     TablesDict = Database#database.tables,
 
     Size = dict:size(TablesDict),
@@ -1246,6 +1237,9 @@ read_database_test() ->
            comment    = null} = lookup_index(<<"pk_user">>, Table#table.indexes),
 
     % Relationship
+    [FR] = Table#table.relations,
+    [FC] = FR#foreign_relation.foreign_columns,
+    ?LOG_INFO("FR=~p, local_name=~p", [FR, FC#foreign_column.local_name]),
     ?assertEqual([#foreign_relation{foreign_schema  = <<"test_schema">>, foreign_table = <<"user">>,
                                     foreign_columns = [#foreign_column{foreign_name     = <<"user_id">>,
                                                                        local_name       = <<"aka_id">>,
@@ -1285,6 +1279,8 @@ read_database_test() ->
     ?assertEqual(<<"public">>, Table2#table.schema),
     ?assertEqual(<<"example_b">>, Table2#table.name),
 
+    ok = epgsql:close(C),
+
     ?LOG_INFO("====================== read_database_test() END ======================"),
     ok.
 
@@ -1295,5 +1291,36 @@ lookup_index(Name, [Idx = #index{name = Name} | _Rest]) ->
     Idx;
 lookup_index(Name, [_Head | Rest]) ->
     lookup_index(Name, Rest).
+
+cleanup_version(_C, []) ->
+    ok;
+cleanup_version(C, [{_Key, T0} | Rest]) ->
+    Alter = "ALTER TABLE " ++ binary_to_list(T0#table.schema) ++ "." ++ binary_to_list(T0#table.name) ++
+                                                                        " DROP COLUMN version",
+    case epgsql:squery(C, Alter) of
+        {ok, _Fields, _Rows} ->
+            cleanup_version(C, Rest);
+        {error, Reason} ->
+            io:format("    WARNING: Failed to get alter table ~p.~p. Reason=~p, Stmt=~p~n",
+                      [T0#table.schema, T0#table.name, Reason, Alter]),
+            ok
+    end.
+
+last_test() ->
+    ?LOG_INFO("====================== CLEANING UP VERSION COLUMNS ======================"),
+
+    {ok, C} = epgsql:connect(#{host => "localhost",
+                               port => 5432,
+                               username => "proto_crudl",
+                               password => "proto_crudl",
+                               database => "proto_crudl",
+                               timeout => 4000}),
+
+    {ok, Database} = proto_crudl_psql:read_database(C, [{schemas, ["public", "test_schema"]},
+                                                        {excluded, ["public.excluded", "spatial_ref_sys"]}]),
+
+    TablesDict = Database#database.tables,
+    ok = cleanup_version(C, dict:to_list(TablesDict)),
+    ok = epgsql:close(C).
 
 -endif.

@@ -10,7 +10,7 @@
 -author("bryan").
 
 %% API
--export([main/1, make_fqn/1, format_fqn/1, process_configs/2]).
+-export([main/1, make_fqn/1, format_fqn/1, process_configs/3]).
 
 -include("proto_crudl.hrl").
 
@@ -38,29 +38,32 @@ main(Args = [ConfigFile]) ->
             application:ensure_all_started(pgo),
             application:set_env(pg_types, uuid_format, string),
 
-            start_provider(ProviderConfig),
+            % TODO: Write a function to inspect the rebar.config gpb_opts to make sure they are not mismatched
 
-            case read_database(ProviderConfig, GeneratorConfig) of
+            {ok, Conn} = start_provider(ProviderConfig),
+
+            case read_database(Conn, ProviderConfig, GeneratorConfig) of
                 {ok, Database0} ->
                     % Process the configs
-                    {ok, Database1} = process_configs(GeneratorConfig, Database0),
+                    {ok, Database1} = process_configs(Conn, GeneratorConfig, Database0),
 
                     % Now generate the protobuffers
                     ok = proto_crudl_proto:generate(ProtoConfig, Database1),
 
-                   % Generate the Erlang code
-                   ok = proto_crudl_code:generate(ProviderConfig, OutputConfig, Database1),
+                    % Generate the Erlang code
+                    ok = proto_crudl_code:generate(ProviderConfig, OutputConfig, Database1),
 
                     io:format("~n---------------- DONE -----------------~n"),
                     ok;
                 {error, Reason} ->
                     io:format("ERROR: ~p", [Reason])
-            end
+            end,
+
+            ok = epgsql:close(Conn)
     end;
 main(Args) ->
     io:format("Invalid args: ~p~n~n", [Args]),
     show_usage().
-
 
 show_usage() ->
     io:format("usage: proto_crudl <proto_crudl.config>~n~n"),
@@ -69,65 +72,69 @@ show_usage() ->
 
 start_provider([{provider, postgres}, {host, Host}, {port, Port}, {database, DBName},
                 {username, User}, {password, Password}]) ->
-    pgo:start_pool(default, #{pool_size => 10, host => Host, port => Port, database => DBName,
-                              user => User, password => Password});
+    epgsql:connect(#{host => Host,
+                     port => Port,
+                     username => User,
+                     password => Password,
+                     database => DBName,
+                     timeout => 4000});
 start_provider([{provider, Provider}, _, _, _, _, _]) ->
     io:format("ERROR: Provider ~p is not supported yet.~n", [Provider]),
     erlang:error(provider_not_supported).
 
 
--spec read_database(Provider :: list(), Generator :: list()) -> {ok, Database :: #database{}} | {error, Reason :: any()}.
-read_database(ProviderOptions, Generator) ->
+-spec read_database(Conn :: pid(), Provider :: list(), Generator :: list()) -> {ok, Database :: #database{}} | {error, Reason :: any()}.
+read_database(Conn, ProviderOptions, Generator) ->
     case proplists:get_value(provider, ProviderOptions) of
         postgres ->
-            proto_crudl_psql:read_database(Generator);
+            proto_crudl_psql:read_database(Conn, Generator);
         Other ->
             {error, {unsupported_provider, Other}}
     end.
 
 
--spec process_configs([tuple()], dict:dict()) -> {ok, #database{}} | {error, Reason :: any()}.
-process_configs([], Database) ->
+-spec process_configs(pid(), [tuple()], dict:dict()) -> {ok, #database{}} | {error, Reason :: any()}.
+process_configs(_C, [], Database) ->
     {ok, Database};
-process_configs([{options, Options} | Rest], Database) ->
+process_configs(C, [{options, Options} | Rest], Database) ->
     io:format("~nProcessing options...~n"),
-    case process_options(Options, Database) of
+    case process_options(C, Options, Database) of
         {ok, Database1} ->
-            process_configs(Rest, Database1);
+            process_configs(C, Rest, Database1);
         {error, Reason} ->
             {error, Reason}
     end;
-process_configs([{exclude_columns, Columns} | Rest], Database) ->
+process_configs(C, [{exclude_columns, Columns} | Rest], Database) ->
     io:format("~nProcessing exclude columns...~n"),
     case exclude_columns(Columns, Database) of
         {ok, Database1} ->
-            process_configs(Rest, Database1)
+            process_configs(C, Rest, Database1)
     end;
-process_configs([{extensions, Extensions} | Rest], Database) ->
+process_configs(C, [{extensions, Extensions} | Rest], Database) ->
     io:format("~nProcessing proto extensions...~n"),
     case process_extensions(Extensions, Database) of
         {ok, Database1} ->
-            process_configs(Rest, Database1);
+            process_configs(C, Rest, Database1);
         {error, Reason} ->
             {error, Reason}
     end;
-process_configs([{mapping, Mappings} | Rest], Database) ->
+process_configs(C, [{mapping, Mappings} | Rest], Database) ->
     io:format("~nProcessing custom mappings...~n"),
-    case process_mappings(Mappings, Database) of
+    case process_mappings(C, Mappings, Database) of
         {ok, Database1} ->
-            process_configs(Rest, Database1)
+            process_configs(C, Rest, Database1)
     end;
-process_configs([{transforms, Transforms} | Rest], Database) ->
+process_configs(C, [{transforms, Transforms} | Rest], Database) ->
     io:format("~nProcessing transformations...~n"),
     case process_transforms(Transforms, Database) of
         {ok, Database1} ->
-            process_configs(Rest, Database1)
+            process_configs(C, Rest, Database1)
     end;
-process_configs([{Unknown, _} | Rest], Database) when Unknown == schemas orelse Unknown == excluded ->
-    process_configs(Rest, Database);
-process_configs([Unknown | Rest], Database) ->
+process_configs(C, [{Unknown, _} | Rest], Database) when Unknown == schemas orelse Unknown == excluded ->
+    process_configs(C, Rest, Database);
+process_configs(C, [Unknown | Rest], Database) ->
     io:format("~nWARNING! Unknown config: ~0p~n", [Unknown]),
-    process_configs(Rest, Database).
+    process_configs(C, Rest, Database).
 
 
 -spec process_transforms([{string(), [{atom(), string()}]}], #database{}) -> {ok, #database{}} | {error, any()}.
@@ -225,53 +232,90 @@ apply_column_transforms(update, Table = #table{columns = ColDict, schema = S, na
             {error, notfound}
     end.
 
--spec process_mappings([{string(), [{atom(), string()}]}], #database{}) -> {ok, #database{}}.
-process_mappings([], Database) ->
+-spec process_mappings(pid(), [{string(), [{atom(), string()}]}], #database{}) -> {ok, #database{}}.
+process_mappings(_C, [], Database) ->
     {ok, Database};
-process_mappings([{FQN, QueryList} | Rest], Db = #database{tables = TablesDict}) ->
+process_mappings(C, [{FQN, QueryList} | Rest], Db = #database{tables = TablesDict}) ->
     FQN1 = format_fqn(FQN),
     case dict:find(FQN1, TablesDict) of
         {ok, T0} ->
             io:format("    Table: ~p~n", [FQN1]),
-            case process_mapping(QueryList, T0) of
+            case process_mapping(C, QueryList, T0) of
                 {ok, T1} ->
-                    process_mappings(Rest, Db#database{tables = dict:store(FQN1, T1, TablesDict)})
+                    process_mappings(C, Rest, Db#database{tables = dict:store(FQN1, T1, TablesDict)})
             end;
         error ->
             io:format("    Failed to find table ~p~n", [FQN1]),
-            process_mappings(Rest, Db)
+            process_mappings(C, Rest, Db)
     end.
 
-process_mapping([], Table) ->
+process_mapping(_C, [], Table) ->
     {ok, Table};
-process_mapping([{Name, Query} | Rest], Table) ->
+process_mapping(C, [{Name, Query} | Rest], Table) ->
+    Q = string:to_lower(Query),
     Expanded = proto_crudl_code:maybe_expand_sql(Table, Query),
-    BindVars = case string:prefix(string:to_lower(Expanded), "select") of
-                   nomatch ->
-                       [];
-                   _ ->
-                       parse_query(Expanded)
+    ResultSets = case {string:prefix(Q, "select"), string:str(Q, "returning")} of
+                     {nomatch, 0} ->
+                         [];
+                     {nomatch, Idx} when Idx > 0 ->
+                         parse_query(C, returning_clause(Expanded));
+                     {_, 0} ->
+                         parse_query(C, strip_where_clause(Expanded))
                end,
-    Q = #custom_query{name = Name, query = Expanded, bind_vars = BindVars},
+    CQ = #custom_query{name = Name, query = Expanded, result_set = ResultSets},
     io:format("        ~p : ~p~n", [Name, Expanded]),
-    process_mapping(Rest, Table#table{mappings = orddict:store(Name, Q, Table#table.mappings)}).
+    process_mapping(C, Rest, Table#table{mappings = orddict:store(Name, CQ, Table#table.mappings)}).
 
--spec parse_query(string()) -> [#bind_var{}].
-parse_query(SelectStatement) ->
-    View = "CREATE TEMPORARY VIEW proto_crudl_desc AS " ++ strip_where_clause(SelectStatement),
-    X = pgo:query(View, [], #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}]}),
-    case X of
-        #{command := create, num_rows := view, rows := []} ->
-            case process_view() of
-                {ok, BindVars} ->
-                    BindVars;
-                {error, _Reason} ->
-                    []
-            end;
+-spec parse_query(pid(), string()) -> [#bind_var{}].
+parse_query(C, SelectStatement) ->
+    io:format("SelectStatement=~p~n", [SelectStatement]),
+    case epgsql:squery(C, SelectStatement) of
+        {ok, Fields, _} when length(Fields) > 0 ->
+            logger:info("Fields=~p", [Fields]),
+            [#bind_var{name = N, data_type = proto_crudl_utils:to_binary(DT)} || {column,N,DT,_,_,_,_,_,_} <- Fields];
         {error, Reason} ->
-            io:format("    WARNING: Failed create view. Reason=~p, Stmt=~p~n", [Reason, View]),
+            io:format("    WARNING: Failed create view. Reason=~p, Stmt=~p~n", [Reason, SelectStatement]),
             []
     end.
+
+returning_clause(Statement) ->
+    LS = string:to_lower(Statement),
+    TableName = get_table_name(LS),
+    logger:info("TableName=~p", [TableName]),
+    S = lists:reverse(LS),
+    Len = length(S),
+    case find_returning(0, S) of
+        Len ->
+            "";
+        Pos ->
+            Start = (Len - Pos) + 1,
+            Clause =  string:sub_string(Statement, Start),
+            logger:info("Pos=~p, Len=~p, Start=~p, Clause=~p", [Pos, Len, Start, Clause]),
+            "select " ++ Clause ++ " from " ++ TableName
+    end.
+
+find_returning(Pos, []) ->
+    Pos;
+find_returning(Pos, [32, $g, $n, $i, $n, $r, $u, $t, $e, $r, 32 | _Rest]) ->
+    Pos;
+find_returning(Pos, [_Chr | Rest]) ->
+    find_returning(Pos + 1, Rest).
+
+get_table_name([]) ->
+    "";
+get_table_name([$i, $n, $s, $e, $r, $t, 32, $i, $n, $t, $o, 32 | Rest]) ->
+    scan_to_space(Rest, []);
+get_table_name([$u, $p, $d, $a, $t, $e, 32 | Rest]) ->
+    scan_to_space(Rest, []);
+get_table_name([_Chr | Rest]) ->
+    get_table_name(Rest).
+
+scan_to_space([], Acc) ->
+    lists:reverse(Acc);
+scan_to_space([32 | _Rest], Acc) ->
+    lists:reverse(Acc);
+scan_to_space([Chr | Rest], Acc) ->
+    scan_to_space(Rest, [Chr | Acc]).
 
 strip_where_clause(SelectStatement) ->
     S = lists:reverse(string:to_lower(SelectStatement)),
@@ -285,14 +329,6 @@ find_where(Pos, [$e, $r, $e, $h, $w | _Rest]) ->
     Pos + 5;
 find_where(Pos, [_Chr | Rest]) ->
     find_where(Pos + 1, Rest).
-
-process_view() ->
-    case proto_crudl_psql:read_temp_view() of
-        {ok, Rows} ->
-            {ok, [#bind_var{name = N, data_type = DT, udt_name = UN} || #{column_name := N, data_type := DT, udt_name := UN} <- Rows]};
-        {error, Reason} ->
-            {error, Reason}
-    end.
 
 -spec process_extensions([tuple()], #database{}) -> {ok, #database{}} | {error, Reason :: any()}.
 process_extensions([], Database) ->
@@ -310,51 +346,51 @@ process_extensions([{FQN, Extension} | Rest], Db = #database{tables = TablesDict
     end.
 
 
--spec process_options([tuple()], dict:dict()) -> {ok, #database{}} | {error, Reason :: any()}.
-process_options([], Database) ->
+-spec process_options(pid(), [tuple()], dict:dict()) -> {ok, #database{}} | {error, Reason :: any()}.
+process_options(_C, [], Database) ->
     {ok, Database};
-process_options([{version_column, ColumnName} | Rest], Database = #database{tables = TablesDict}) ->
+process_options(C, [{version_column, ColumnName} | Rest], Database = #database{tables = TablesDict}) ->
     %% Test for existence and inject column if not there
-    case maybe_inject_version(proto_crudl_utils:to_binary(ColumnName), dict:to_list(TablesDict), Database) of
+    case maybe_inject_version(C, proto_crudl_utils:to_binary(ColumnName), dict:to_list(TablesDict), Database) of
         {ok, Database1} ->
-            process_options(Rest, Database1);
+            process_options(C, Rest, Database1);
         {error, Reason} ->
             {error, Reason}
     end;
-process_options([check_constraints_as_enums | Rest], Database) ->
-    process_options(Rest, Database);
-process_options([indexed_lookups | Rest], Database) ->
-    process_options(Rest, Database);
-process_options([Unknown | Rest], Database) ->
+process_options(C, [check_constraints_as_enums | Rest], Database) ->
+    process_options(C, Rest, Database);
+process_options(C, [indexed_lookups | Rest], Database) ->
+    process_options(C, Rest, Database);
+process_options(C, [Unknown | Rest], Database) ->
     io:format("Unknown option - ~p~n", [Unknown]),
-    process_options(Rest, Database).
+    process_options(C, Rest, Database).
 
 
--spec maybe_inject_version(binary(), [{binary(), #table{}}], #database{}) -> {ok, #database{}} | {error, Reason :: any()}.
-maybe_inject_version(_ColumnName, [], Database) ->
+-spec maybe_inject_version(pid(), binary(), [{binary(), #table{}}], #database{}) -> {ok, #database{}} | {error, Reason :: any()}.
+maybe_inject_version(_C, _ColumnName, [], Database) ->
     {ok, Database};
-maybe_inject_version(ColumnName, [{_Key, T0 = #table{columns = Columns0}} | Rest], Db = #database{tables = TableDict}) ->
+maybe_inject_version(C, ColumnName, [{_Key, T0 = #table{columns = Columns0}} | Rest], Db = #database{tables = TableDict}) ->
     case orddict:find(ColumnName, Columns0) of
         {ok, #column{data_type = <<"bigint">>}} ->
             logger:info("Found version column ~p on table ~p~p", [ColumnName, T0#table.schema, T0#table.name]),
             io:format("    Found version column ~p on table ~p.~p~n", [ColumnName, T0#table.schema, T0#table.name]),
-            maybe_inject_version(ColumnName, Rest, Db);
+            maybe_inject_version(C, ColumnName, Rest, Db);
         {ok, _} ->
             io:format("    WARNING: Found version column ~p on table ~p.~p but is not a bigint~n",
                       [ColumnName, T0#table.schema, T0#table.name]),
-            maybe_inject_version(ColumnName, Rest, Db);
+            maybe_inject_version(C, ColumnName, Rest, Db);
         error ->
             logger:info("Injecting version column ~p on table ~p~p", [ColumnName, T0#table.schema, T0#table.name]),
             io:format("    Injecting version column ~p on table ~p.~p~n", [ColumnName, T0#table.schema, T0#table.name]),
             Alter = "ALTER TABLE " ++ binary_to_list(T0#table.schema) ++ "." ++ binary_to_list(T0#table.name) ++
                     " ADD COLUMN " ++ binary_to_list(ColumnName) ++ " bigint",
-            case pgo:query(Alter, [], #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}]}) of
-                #{command := alter, num_rows := table, rows := []} ->
+            case epgsql:squery(C, Alter) of
+                {ok, _Fields, _Rows} ->
                     % Reread the columns
-                    case proto_crudl_psql:read_table(T0#table.schema, T0#table.name, ColumnName) of
+                    case proto_crudl_psql:read_table(C, T0#table.schema, T0#table.name, ColumnName) of
                         {ok, T1} ->
                             FQN = make_fqn(T1),
-                            maybe_inject_version(ColumnName, Rest, Db#database{tables = dict:store(FQN, T1, TableDict)});
+                            maybe_inject_version(C, ColumnName, Rest, Db#database{tables = dict:store(FQN, T1, TableDict)});
                         {error, Reason} ->
                             io:format("    ERROR: Failed to read columns from table ~p.~p. Reason=~p~n",
                                       [T0#table.schema, T0#table.name, Reason]),
@@ -441,15 +477,6 @@ make_fqn(#table{schema = S, name = N}) ->
 
 first_test() ->
     logger:set_primary_config(level, info),
-    application:ensure_all_started(pgo),
-    application:set_env(pg_types, uuid_format, string),
-    pgo:start_pool(default, #{pool_size => 10,
-                              host => "127.0.0.1",
-                              port => 5432,
-                              database => "proto_crudl",
-                              user => "proto_crudl",
-                              password => "proto_crudl"}),
-
     ok.
 
 find_where_test() ->
@@ -467,10 +494,34 @@ find_where_test() ->
     ?LOG_INFO("====================== find_where_test() END ======================"),
     ok.
 
+find_returning_test() ->
+    ?LOG_INFO("====================== find_returning_test() START ======================"),
+    UpdateStr = "UPDATE test_schema.user SET user_token = uuid_generate_v4() WHERE user_id = $1 AND version = $2 RETURNING user_token, version",
+    SelectStr0 = returning_clause(UpdateStr),
+    logger:info("SelectStr0=~p", [SelectStr0]),
+    Expected = "select user_token, version from test_schema.user",
+    ?assertEqual(Expected, SelectStr0),
+
+    UpdateStr1 = "UPDATE test_schema.user SET enabled = false WHERE email = $1",
+    SelectStr1 = returning_clause(UpdateStr1),
+    logger:info("SelectStr1=~p", [SelectStr1]),
+    Expected1 = "",
+    ?assertEqual(Expected1, SelectStr1),
+
+    ?LOG_INFO("====================== find_returning_test() END ======================"),
+    ok.
+
 process_transforms_test() ->
     ?LOG_INFO("====================== process_transforms_test() START ======================"),
-    {ok, Database} = proto_crudl_psql:read_database([{schemas, ["public", "test_schema"]},
-                                                   {excluded, ["public.excluded", "spatial_ref_sys"]}]),
+    {ok, C} = epgsql:connect(#{host => "localhost",
+                               port => 5432,
+                               username => "proto_crudl",
+                               password => "proto_crudl",
+                               database => "proto_crudl",
+                               timeout => 4000}),
+
+    {ok, Database} = proto_crudl_psql:read_database(C, [{schemas, ["public", "test_schema"]},
+                                                        {excluded, ["public.excluded", "spatial_ref_sys"]}]),
 
     Configs = [{transforms, [
         {"test_schema.user", [
@@ -490,7 +541,7 @@ process_transforms_test() ->
     % except those in the excluded list. Note, that the excluded list may still be included in a write operation
     % depending on the transformation mapping.
 
-    {ok, Database1} = process_configs(Configs, Database),
+    {ok, Database1} = process_configs(C, Configs, Database),
     TablesDict = Database1#database.tables,
     {ok, Table} = dict:find(<<"test_schema.user">>, TablesDict),
 
@@ -525,6 +576,7 @@ process_transforms_test() ->
                          is_sequence = false, is_virtual = true, ordinal_position = 99,
                          udt_name    = <<"decimal">>, select_xform = <<"ST_Y(geog::geometry)">>}, Lat),
 
+    epgsql:close(C),
 
     ?LOG_INFO("====================== process_transforms_test() END ======================"),
     ok.
@@ -532,8 +584,15 @@ process_transforms_test() ->
 process_mappings_test() ->
     ?LOG_INFO("====================== process_mappings_test() START ======================"),
 
-    {ok, Database} = proto_crudl_psql:read_database([{schemas, ["public", "test_schema"]},
-                                                   {excluded, ["public.excluded", "spatial_ref_sys"]}]),
+    {ok, C} = epgsql:connect(#{host => "localhost",
+                               port => 5432,
+                               username => "proto_crudl",
+                               password => "proto_crudl",
+                               database => "proto_crudl",
+                               timeout => 4000}),
+
+    {ok, Database} = proto_crudl_psql:read_database(C, [{schemas, ["public", "test_schema"]},
+                                                        {excluded, ["public.excluded", "spatial_ref_sys"]}]),
 
     Configs = [{mapping, [
         {"test_schema.user", [
@@ -544,13 +603,13 @@ process_mappings_test() ->
             {enable_user, "UPDATE test_schema.user SET enabled = true WHERE email = $1"},
             {delete_user_by_email, "DELETE FROM test_schema.user WHERE email = $1"},
             {set_token, "UPDATE test_schema.user SET user_token = uuid_generate_v4() WHERE user_id = $1 RETURNING user_token"},
-            {find_nearest, "SELECT *, ST_X(geog::geometry) AS lon, ST_Y(geog::geometry) AS lat FROM address "
+            {find_nearest, "SELECT *, ST_X(geog::geometry) AS lon, ST_Y(geog::geometry) AS lat FROM test_schema.user "
                            "WHERE ST_DWithin( geog, Geography(ST_MakePoint($1, $2)), $3 ) AND lat != 0.0 AND lng != 0.0 "
                            "ORDER BY geog <-> ST_POINT($1, $2)::geography"}
         ]}
     ]}],
 
-    {ok, Database1} = process_configs(Configs, Database),
+    {ok, Database1} = process_configs(C, Configs, Database),
     TablesDict = Database1#database.tables,
     {ok, UserTable} = dict:find(<<"test_schema.user">>, TablesDict),
 
@@ -560,7 +619,7 @@ process_mappings_test() ->
     ?LOG_INFO("CustomQuery=~p", [CustomQuery]),
     Query = CustomQuery#custom_query.query,
     ?assertEqual(get_pword_hash, CustomQuery#custom_query.name),
-    ?assertEqual([{bind_var,<<"pword_hash">>,<<"bytea">>,<<"bytea">>}], CustomQuery#custom_query.bind_vars),
+    ?assertEqual([{bind_var,<<"pword_hash">>,<<"bytea">>}], CustomQuery#custom_query.result_set),
     ?assertEqual("SELECT pword_hash FROM test_schema.user WHERE email = $1", Query),
 
     {ok, ProductTable} = dict:find(<<"public.product">>, TablesDict),
@@ -569,20 +628,29 @@ process_mappings_test() ->
     ?assertEqual(0, orddict:size(Mappings1)),
     ?assertEqual(error, orddict:find(get_pword_hash, Mappings1)),
 
+    ok = epgsql:close(C),
+
     ?LOG_INFO("====================== process_mappings_test() END ======================"),
     ok.
 
 mark_excluded_columns_test() ->
     ?LOG_INFO("====================== mark_excluded_columns_test() START ======================"),
 
-    {ok, Database} = proto_crudl_psql:read_database([{schemas, ["public", "test_schema"]},
-                                                   {excluded, ["public.excluded", "spatial_ref_sys"]}]),
+    {ok, C} = epgsql:connect(#{host => "localhost",
+                               port => 5432,
+                               username => "proto_crudl",
+                               password => "proto_crudl",
+                               database => "proto_crudl",
+                               timeout => 4000}),
+
+    {ok, Database} = proto_crudl_psql:read_database(C, [{schemas, ["public", "test_schema"]},
+                                                        {excluded, ["public.excluded", "spatial_ref_sys"]}]),
 
     Configs = [{exclude_columns, [
         {"test_schema.user", ["pword_hash", "geog"]}
     ]}],
 
-    {ok, Database1} = process_configs(Configs, Database),
+    {ok, Database1} = process_configs(C, Configs, Database),
     TablesDict = Database1#database.tables,
     {ok, UserTable} = dict:find(<<"test_schema.user">>, TablesDict),
 
@@ -611,29 +679,41 @@ mark_excluded_columns_test() ->
                   <<"my_array">>, <<"number_value">>, <<"pword_hash">>,
                   <<"updated_on">>, <<"user_id">>, <<"user_token">>, <<"user_type">>], ColumnList),
 
+    ok = epgsql:close(C),
+
     ?LOG_INFO("====================== mark_excluded_columns_test() END ======================"),
     ok.
 
-cleanup_version([]) ->
+cleanup_version(_C, []) ->
     ok;
-cleanup_version([{_Key, T0} | Rest]) ->
+cleanup_version(C, [{_Key, T0} | Rest]) ->
     Alter = "ALTER TABLE " ++ binary_to_list(T0#table.schema) ++ "." ++ binary_to_list(T0#table.name) ++
                                                                         " DROP COLUMN version",
-    case pgo:query(Alter, [], #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}]}) of
-        #{command := alter, num_rows := table, rows := []} ->
-            cleanup_version(Rest);
+    case epgsql:squery(C, Alter) of
+        {ok, _Fields, _Rows} ->
+            cleanup_version(C, Rest);
         {error, Reason} ->
-            io:format("    ERROR: Failed to get alter table ~p.~p. Reason=~p, Stmt=~p~n",
+            io:format("    WARNING: Failed to get alter table ~p.~p. Reason=~p, Stmt=~p~n",
                       [T0#table.schema, T0#table.name, Reason, Alter]),
             ok
     end.
 
 last_test() ->
     ?LOG_INFO("====================== CLEANING UP VERSION COLUMNS ======================"),
-    {ok, Database} = proto_crudl_psql:read_database([{schemas, ["public", "test_schema"]},
-                                                   {excluded, ["public.excluded", "spatial_ref_sys"]}]),
+
+    {ok, C} = epgsql:connect(#{host => "localhost",
+                               port => 5432,
+                               username => "proto_crudl",
+                               password => "proto_crudl",
+                               database => "proto_crudl",
+                               timeout => 4000}),
+
+    {ok, Database} = proto_crudl_psql:read_database(C, [{schemas, ["public", "test_schema"]},
+                                                        {excluded, ["public.excluded", "spatial_ref_sys"]}]),
 
     TablesDict = Database#database.tables,
-    ok = cleanup_version(dict:to_list(TablesDict)).
+    ok = cleanup_version(C, dict:to_list(TablesDict)),
+    ok = epgsql:close(C).
+
 
 -endif.

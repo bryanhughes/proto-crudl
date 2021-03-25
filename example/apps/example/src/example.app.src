@@ -6,11 +6,6 @@
   {applications,
    [kernel,
     stdlib,
-    inets,
-    mimerl,
-    elli,
-    elli_cookie,
-    elli_date,
     pgo
    ]},
   {env,[]},
