@@ -55,7 +55,7 @@ ts_support([{_Key, #column{udt_name = UN}} | Rest]) ->
         _ ->
             "ts_encode(Datetime={{_, _, _}, {_, _, Seconds}}) when is_integer(Seconds) ->\n"
             "    Secs = calendar:datetime_to_gregorian_seconds(Datetime) - 62167219200,\n"
-            "    #{seconds => Secs, nanos => 0};\n"
+            "    #'google.protobuf.Timestamp'{seconds = Secs, nanos = 0};\n"
             "ts_encode({{Year, Month, Day}, {Hours, Minutes, Seconds}}) when is_float(Seconds)->\n"
             "    IntegerSeconds = trunc(Seconds),\n"
             "    US = trunc((Seconds - IntegerSeconds) * 1000000),\n"
@@ -171,11 +171,18 @@ decode_columns([_Head | Rest], Acc) ->
 
 
 build_empty_record(true, RecordName, #table{select_list = SelectList, default_list = DefaultList, columns = ColDict}) ->
-    lists:flatten("#" ++ RecordName ++ "{" ++
-                  lists:join(", ", [proto_crudl_utils:to_string(C) ++ " = undefined" || C <- SelectList,
-                                    lists:member(C, DefaultList) == false andalso
-                                    proto_crudl_code:is_version(ColDict, C) == false]) ++ "}");
+    Fun = fun(C, Acc) ->
+                case {lists:member(C, DefaultList), proto_crudl_code:is_version(ColDict, C)} of
+                    {true, false} ->
+                        [proto_crudl_utils:to_string(C) ++ " = default" | Acc];
+                    {false, false} ->
+                        [proto_crudl_utils:to_string(C) ++ " = undefined" | Acc];
+                    _ ->
+                        Acc
+                end
+          end,
+    lists:flatten("#" ++ RecordName ++ "{" ++ lists:join(", ", lists:reverse(lists:foldl(Fun, [], SelectList))) ++ "}");
 build_empty_record(_, RecordName, #table{select_list = SelectList, columns = ColDict}) ->
     lists:flatten("#" ++ RecordName ++ "{" ++
-                   lists:join(", ", [proto_crudl_utils:to_string(C) ++ " = undefined" || C <- SelectList,
-                                     proto_crudl_code:is_version(ColDict, C) == false]) ++ "}").
+                  lists:join(", ", [proto_crudl_utils:to_string(C) ++ " = undefined" || C <- SelectList,
+                                    proto_crudl_code:is_version(ColDict, C) == false]) ++ "}").

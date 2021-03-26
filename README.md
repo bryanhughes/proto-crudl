@@ -314,3 +314,16 @@ Because of the subtle misalignment between libraries, using maps requires the us
 to correctly convert the serialized protobuffers as maps as input values to queries. It also means that the developer
 has to handle `null` values from the `pgo` and ultimately `proto_crutl` and remember to convert to `undefined` when
 serializing. Maps are very flexible, but also very problematic.
+
+## Other Notes
+`proto-crudl` generates code to support inserting records with database defaults. It is important to understand that
+the current state of the tool means there are two create functions. One for a straight insert/create, and one for
+a record excluding all the default values. It is all defaults or nothing. To create a record with default values
+you much new the map or the record by calling
+
+    User = test_schema_user:new_default(),
+    test_schema_user:create(User),
+
+Because aware that if your table has multiple columns with default values set, and you try to create a record
+with a default value set, you will get a matching error as `proto-crudl` uses the atom `default` to match the function
+on.

@@ -674,7 +674,7 @@ build_insert_record(RecordName, #table{columns = ColDict, insert_list = InsertLi
     Fun = fun(C, Acc) ->
             case {is_version(ColDict, C), lists:member(C, DefaultList)} of
                 {true, _} -> Acc;
-                {false, true} -> [proto_crudl_utils:to_string(C) ++ " = " ++ "undefined" | Acc];
+                {false, true} -> [proto_crudl_utils:to_string(C) ++ " = " ++ "default" | Acc];
                 {false, false} -> [proto_crudl_utils:to_string(C) ++ " = " ++ proto_crudl_utils:camel_case(proto_crudl_utils:to_string(C)) | Acc]
             end
           end,
@@ -897,7 +897,7 @@ define_test() ->
 
     DefaultOutput = build_insert_defaults_sql(S, N, UserTable),
     ?LOG_INFO("DefaultOutput=~p~n", [DefaultOutput]),
-    DefaultAssert = "INSERT INTO test_schema.user (first_name, last_name, email, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, geog) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, ST_POINT($12, $11)::geography) RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon",
+    DefaultAssert = "INSERT INTO test_schema.user (first_name, last_name, email, aka_id, my_array, user_type, number_value, updated_on, due_date, geog) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, ST_POINT($11, $10)::geography) RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon",
     ?assertEqual(DefaultAssert, DefaultOutput),
 
     UpdateOutput = build_update_sql(S, N, UserTable),
@@ -988,16 +988,16 @@ inject_version_test() ->
     ExpectedMap = "#{lon := Lon, lat := Lat, due_date := DueDate, updated_on := UpdatedOn, created_on := CreatedOn, number_value := NumberValue, user_type := UserType, my_array := MyArray, aka_id := AkaId, enabled := Enabled, user_token := UserToken, email := Email, last_name := LastName, first_name := FirstName}",
     ?assertEqual(ExpectedMap, Map),
 
-    ExpectedDMap = "#{lon := Lon, lat := Lat, due_date := DueDate, updated_on := UpdatedOn, created_on := CreatedOn, number_value := NumberValue, user_type := UserType, my_array := MyArray, aka_id := AkaId, email := Email, last_name := LastName, first_name := FirstName}",
+    ExpectedDMap = "#{lon := Lon, lat := Lat, due_date := DueDate, updated_on := UpdatedOn, number_value := NumberValue, user_type := UserType, my_array := MyArray, aka_id := AkaId, email := Email, last_name := LastName, first_name := FirstName}",
     ?assertEqual(ExpectedDMap, DMap),
 
     {Param, DParam} = build_insert_params(UserTable),
     ?LOG_INFO("Param=~p, DParam=~p", [Param, DParam]),
 
-    ExpectedParam = "[FirstName, LastName, Email, UserToken, Enabled, AkaId, MyArray, user_type_value(UserType), NumberValue, ts_decode_map(CreatedOn), ts_decode_map(UpdatedOn), DueDate, Lat, Lon]",
+    ExpectedParam = "[FirstName, LastName, Email, UserToken, Enabled, AkaId, MyArray, user_type_value(UserType), NumberValue, ts_decode(CreatedOn), ts_decode(UpdatedOn), DueDate, Lat, Lon]",
     ?assertEqual(ExpectedParam, Param),
 
-    ExpectedDParam = "[FirstName, LastName, Email, AkaId, MyArray, user_type_value(UserType), NumberValue, ts_decode_map(CreatedOn), ts_decode_map(UpdatedOn), DueDate, Lat, Lon]",
+    ExpectedDParam = "[FirstName, LastName, Email, AkaId, MyArray, user_type_value(UserType), NumberValue, ts_decode(UpdatedOn), DueDate, Lat, Lon]",
     ?assertEqual(ExpectedDParam, DParam),
 
     Map0 = build_update_map(UserTable),
@@ -1009,7 +1009,7 @@ inject_version_test() ->
     Param0 = build_update_params(UserTable),
     ?LOG_INFO("Param0=~p", [Param0]),
 
-    ExpectedParam0 = "[UserId, FirstName, LastName, Email, UserToken, Enabled, AkaId, MyArray, user_type_value(UserType), NumberValue, ts_decode_map(CreatedOn), ts_decode_map(UpdatedOn), DueDate, Version, Lat, Lon]",
+    ExpectedParam0 = "[UserId, FirstName, LastName, Email, UserToken, Enabled, AkaId, MyArray, user_type_value(UserType), NumberValue, ts_decode(CreatedOn), ts_decode(UpdatedOn), DueDate, Version, Lat, Lon]",
     ?assertEqual(ExpectedParam0, Param0),
 
     ok = epgsql:close(C),

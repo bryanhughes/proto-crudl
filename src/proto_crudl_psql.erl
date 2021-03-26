@@ -1269,7 +1269,7 @@ read_database_test() ->
 
     ?assertEqual(<<"user_id">>, Table#table.sequence),
 
-    ?assertEqual([<<"user_token">>, <<"enabled">>], Table#table.default_list),
+    ?assertEqual([<<"user_token">>, <<"enabled">>,<<"created_on">>], Table#table.default_list),
 
     UserToken = orddict:fetch(<<"user_token">>, Table#table.columns),
     ?assertEqual(<<"uuid_generate_v1()">>, UserToken#column.default),
