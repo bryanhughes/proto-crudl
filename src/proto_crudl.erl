@@ -35,11 +35,7 @@ main(Args = [ConfigFile]) ->
             OutputConfig = proplists:get_value(output, Terms),
             ProtoConfig = proplists:get_value(proto, Terms),
 
-            application:ensure_all_started(pgo),
-            application:set_env(pg_types, uuid_format, string),
-
             % TODO: Write a function to inspect the rebar.config gpb_opts to make sure they are not mismatched
-
             {ok, Conn} = start_provider(ProviderConfig),
 
             case read_database(Conn, ProviderConfig, GeneratorConfig) of
