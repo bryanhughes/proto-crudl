@@ -547,7 +547,7 @@ process_transforms_test() ->
                     <<"geog">>, <<"pword_hash">>, <<"user_token">>, <<"enabled">>,
                     <<"aka_id">>, <<"my_array">>, <<"user_type">>,
                     <<"number_value">>, <<"created_on">>, <<"updated_on">>,
-                    <<"due_date">>, <<"lat">>, <<"lon">>],
+                    <<"due_date">>, <<"user_state">>, <<"lat">>, <<"lon">>],
     ?assertEqual(ExpectedList, SelectList),
 
     InsertList = Table#table.insert_list,
@@ -665,14 +665,14 @@ mark_excluded_columns_test() ->
     ?assertEqual([<<"user_id">>, <<"first_name">>, <<"last_name">>, <<"email">>,
                   <<"user_token">>, <<"enabled">>, <<"aka_id">>, <<"my_array">>,
                   <<"user_type">>, <<"number_value">>, <<"created_on">>,
-                  <<"updated_on">>, <<"due_date">>], SelectList),
+                  <<"updated_on">>, <<"due_date">>, <<"user_state">>], SelectList),
 
     ColumnList = orddict:fetch_keys(UserTable#table.columns),
     ?LOG_INFO("ColumnList=~p", [ColumnList]),
     ?assertEqual([<<"aka_id">>, <<"created_on">>, <<"due_date">>, <<"email">>,
                   <<"enabled">>, <<"first_name">>, <<"geog">>, <<"last_name">>,
                   <<"my_array">>, <<"number_value">>, <<"pword_hash">>,
-                  <<"updated_on">>, <<"user_id">>, <<"user_token">>, <<"user_type">>], ColumnList),
+                  <<"updated_on">>, <<"user_id">>, <<"user_state">>, <<"user_token">>, <<"user_type">>], ColumnList),
 
     ok = epgsql:close(C),
 

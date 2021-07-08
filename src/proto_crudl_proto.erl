@@ -95,7 +95,7 @@ write_proto(Version, ProtoFile, JavaPackage, Table) ->
     end,
 
     % Write enums
-    Code = write_proto_enums(Table),
+    Code = lists:join("\n", write_proto_enums(Table)) ++ "\n",
     ok = file:write_file(ProtoFile, Code, [append]),
 
     % Write fields
@@ -121,7 +121,7 @@ write_special_imports(_UdtName) ->
 
 
 write_proto_enums(#table{has_valid_values = false}) ->
-    "";
+    [];
 write_proto_enums(#table{columns = ColDict}) ->
     Fun = fun(ColumnName, #column{valid_values = ValidValues}, Acc) ->
                 case length(ValidValues) of
@@ -134,10 +134,10 @@ write_proto_enums(#table{columns = ColDict}) ->
                                     {FieldNo + 1, ["    " ++ V ++ " = " ++ integer_to_list(FieldNo) ++ ";\n" | List]}
                                 end,
                         {_FieldNo, Lines} = lists:foldl(Inner, {0, [Line]}, ValidValues),
-                        lists:flatten(lists:reverse(Lines)) ++ "  }\n"
+                        [lists:flatten(lists:reverse(Lines)) ++ "  }" | Acc]
                 end
           end,
-    orddict:fold(Fun, "", ColDict).
+    orddict:fold(Fun, [], ColDict).
 
 
 -spec make_enum_label(string()) -> string().
@@ -188,9 +188,7 @@ write_raw_message(Version, Name, Table = #table{columns = ColDict}) ->
        undefined -> "";
        E -> "  extensions " ++ E ++ ";\n"
     end ++
-        write_proto_enums(Table) ++
-        lists:reverse(LineList) ++
-    "}\n\n".
+    lists:join("\n", write_proto_enums(Table)) ++ "\n" ++ lists:reverse(LineList) ++ "}\n\n".
 
 write_all_fields(Version, Columns) ->
     Fun1 = fun({ColumnName, Column}, {FieldNo, List}) ->
@@ -317,8 +315,9 @@ proto_test() ->
   optional google.protobuf.Timestamp created_on = 11;
   optional google.protobuf.Timestamp updated_on = 12;
   optional int64 due_date = 13;
-  optional double lat = 14;
-  optional double lon = 15;
+  optional string user_state = 14;
+  optional double lat = 15;
+  optional double lon = 16;
 }\n\n",
     ?assertEqual(Expected, Code),
 

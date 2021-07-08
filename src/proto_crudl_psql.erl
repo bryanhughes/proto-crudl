@@ -398,8 +398,9 @@ process_constraints(S, N, [{Const} | Rest], T0) ->
                 {ok, ValidValues} ->
                     case orddict:find(ColumnName, T0#table.columns) of
                         {ok, C0} ->
-                            io:format("    Valid Values for ~p: ~0p~n", [ColumnName, ValidValues]),
-                            C1 = C0#column{valid_values = ValidValues},
+                            VV = lists:reverse(ValidValues),
+                            io:format("    Valid Values for ~p: ~0p~n", [ColumnName, VV]),
+                            C1 = C0#column{valid_values = VV},
                             Cols = orddict:store(ColumnName, C1, T0#table.columns),
                             process_constraints(S, N, Rest, T0#table{columns = Cols, has_valid_values = true});
                         error ->
@@ -906,7 +907,7 @@ create_defaults_map_fun(_Table, DMap, DParam) ->
     "        {error, {pgsql_error, #{code := <<\"23505\">>}}} ->\n"
     "            {error, exists};\n"
     "        {error, Reason} ->\n"
-    "            logger:error(\"Failed to insert. Reason=~p, Query=~p, Params=~p\", [Reason, ?INSERT, Params]),\n"
+    "            logger:error(\"Failed to insert with defaults. Reason=~p, Query=~p, Params=~p\", [Reason, ?INSERT_DEFAULTS, Params]),\n"
     "            {error, Reason}\n"
     "    end;\n".
 
@@ -923,7 +924,7 @@ create_defaults_record_fun(_Table, RecordName, DRecord, DParam) ->
     "        {error, {pgsql_error, #{code := <<\"23505\">>}}} ->\n"
     "            {error, exists};\n"
     "        {error, Reason} ->\n"
-    "            logger:error(\"Failed to insert. Reason=~p, Query=~p, Params=~p\", [Reason, ?INSERT, Params]),\n"
+    "            logger:error(\"Failed to insert with defaults. Reason=~p, Query=~p, Params=~p\", [Reason, ?INSERT_DEFAULTS, Params]),\n"
     "            {error, Reason}\n"
     "    end;\n".
 
@@ -1218,7 +1219,7 @@ read_database_test() ->
     ExpectedList = [<<"aka_id">>, <<"created_on">>, <<"due_date">>, <<"email">>,
                     <<"enabled">>, <<"first_name">>, <<"geog">>, <<"last_name">>,
                     <<"my_array">>, <<"number_value">>, <<"pword_hash">>,
-                    <<"updated_on">>, <<"user_id">>, <<"user_token">>,
+                    <<"updated_on">>, <<"user_id">>, <<"user_state">>, <<"user_token">>,
                     <<"user_type">>],
     KeyList = orddict:fetch_keys(Table#table.columns),
     ?assertEqual(ExpectedList, KeyList),
@@ -1234,11 +1235,11 @@ read_database_test() ->
      false, false, false, false, false, false, undefined, undefined, undefined,
      undefined, []} = orddict:fetch(<<"email">>, Table#table.columns),
 
-    {column, <<"user">>, <<"test_schema">>, <<"user_type">>, 11,
-     <<"character varying">>, <<"character varying">>, null, false,
-     false, false, false, false, false, false, undefined, undefined, undefined, undefined,
-     [<<"123FUN">>, <<"BUSYGAL">>, <<"BUSY_GUY">>, <<"LITTLE-SHOT">>,
-      <<"BIG SHOT">>]} = orddict:fetch(<<"user_type">>, Table#table.columns),
+    {column,<<"user">>,<<"test_schema">>,
+     <<"user_type">>,11,<<"character varying">>,
+     <<"character varying">>,null,false,false, false,false,false,false,false,undefined, undefined,undefined,undefined,
+     [<<"BIG SHOT">>,<<"LITTLE-SHOT">>,
+      <<"BUSY_GUY">>,<<"BUSYGAL">>,<<"123FUN">>]} = orddict:fetch(<<"user_type">>, Table#table.columns),
 
     % Indexes
     ?assertEqual({index, <<"user">>, <<"test_schema">>,
@@ -1265,17 +1266,17 @@ read_database_test() ->
                   <<"geog">>, <<"pword_hash">>, <<"user_token">>, <<"enabled">>,
                   <<"aka_id">>, <<"my_array">>, <<"user_type">>,
                   <<"number_value">>, <<"created_on">>, <<"updated_on">>,
-                  <<"due_date">>], Table#table.select_list),
+                  <<"due_date">>, <<"user_state">>], Table#table.select_list),
 
     % sequence should be excluded
     ?assertEqual([<<"first_name">>, <<"last_name">>, <<"email">>, <<"geog">>, <<"pword_hash">>,
                   <<"user_token">>, <<"enabled">>, <<"aka_id">>, <<"my_array">>, <<"user_type">>,
-                  <<"number_value">>, <<"created_on">>, <<"updated_on">>, <<"due_date">>], Table#table.insert_list),
+                  <<"number_value">>, <<"created_on">>, <<"updated_on">>, <<"due_date">>, <<"user_state">>], Table#table.insert_list),
 
     % primary key should be excluded
     ?assertEqual([<<"first_name">>, <<"last_name">>, <<"email">>, <<"geog">>, <<"pword_hash">>,
                   <<"user_token">>, <<"enabled">>, <<"aka_id">>, <<"my_array">>, <<"user_type">>,
-                  <<"number_value">>, <<"created_on">>, <<"updated_on">>, <<"due_date">>], Table#table.update_list),
+                  <<"number_value">>, <<"created_on">>, <<"updated_on">>, <<"due_date">>, <<"user_state">>], Table#table.update_list),
 
     ?assertEqual(<<"user_id">>, Table#table.sequence),
 
@@ -1285,8 +1286,8 @@ read_database_test() ->
     ?assertEqual(<<"uuid_generate_v1()">>, UserToken#column.default),
 
     UserType = orddict:fetch(<<"user_type">>, Table#table.columns),
-    ?assertEqual([<<"123FUN">>, <<"BUSYGAL">>, <<"BUSY_GUY">>, <<"LITTLE-SHOT">>,
-                  <<"BIG SHOT">>], UserType#column.valid_values),
+    ?assertEqual( [<<"BIG SHOT">>,<<"LITTLE-SHOT">>,<<"BUSY_GUY">>,
+                   <<"BUSYGAL">>,<<"123FUN">>], UserType#column.valid_values),
     ?assertEqual(true, Table#table.has_valid_values),
 
     {ok, Table2} = dict:find(<<"public.example_b">>, TablesDict),

@@ -277,19 +277,20 @@ crudl_proto_records_test() ->
                                                                       last_name  = <<"Hughes">>,
                                                                       email      = <<"hughesb@gmail.com">>,
                                                                       my_array   = [1, 2, 3]},
-    ?LOG_INFO("Creating bad user=~p", [BadBryan]),
+    ?LOG_INFO("Creating bad user=~0p", [BadBryan]),
     {error, Reason0} = test_schema_user_db:create(BadBryan),
-    ?LOG_INFO("Reason=~p", [Reason0]),
+    ?LOG_INFO("Reason=~0p", [Reason0]),
 
     BadBryan1 = (test_schema_user_db:new_default())#'test_schema.User'{first_name   = <<"Bryan">>,
                                                                        last_name    = <<"Hughes">>,
                                                                        email        = <<"hughesb@gmail.com">>,
                                                                        user_type    = 'FOOBAR',
+                                                                       user_state   = 'living',
                                                                        number_value = 100,
                                                                        my_array     = [1, 2, 3]},
-    ?LOG_INFO("Creating bad user=~p", [BadBryan1]),
+    ?LOG_INFO("Creating bad user=~0p", [BadBryan1]),
     {error, Reason1} = test_schema_user_db:create(BadBryan1),
-    ?LOG_INFO("Reason=~p", [Reason1]),
+    ?LOG_INFO("Reason=~0p", [Reason1]),
 
 
     % Do a good create
@@ -297,6 +298,7 @@ crudl_proto_records_test() ->
                                                                    last_name    = <<"Hughes">>,
                                                                    email        = <<"hughesb@gmail.com">>,
                                                                    user_type    = 'BIG_SHOT',
+                                                                   user_state   = 'living',
                                                                    number_value = 100,
                                                                    updated_on   = {{2021, 2, 23}, {10, 23, 23.5}},
                                                                    my_array     = [1, 2, 3]},
@@ -324,15 +326,18 @@ crudl_proto_records_test() ->
     Tom1 = (test_schema_user_db:new_default())#'test_schema.User'{first_name   = <<"Tom">>,
                                                                   email        = <<"tombagby@gmail.com">>,
                                                                   user_type    = '_123FUN',
+                                                                  user_state   = 'living',
                                                                   number_value = 100,
                                                                   my_array     = [100, 200, 300]},
-    ?LOG_INFO("Creating user=~p", [Tom1]),
+    ?LOG_INFO("Creating user=~0p", [Tom1]),
     {ok, Tom2} = test_schema_user_db:create(Tom1),
 
-    ?LOG_INFO("Tom2=~p", [Tom2]),
+    ?LOG_INFO("Tom2=~0p", [Tom2]),
     ?assertEqual(<<"tombagby@gmail.com">>, Tom2#'test_schema.User'.email),
     ?assertEqual(<<"Tom">>, Tom2#'test_schema.User'.first_name),
     ?assertEqual(undefined, Tom2#'test_schema.User'.last_name),
+    ?assertEqual('_123FUN', Tom2#'test_schema.User'.user_type),
+    ?assertEqual('living', Tom2#'test_schema.User'.user_state),
 
     TomId = Tom2#'test_schema.User'.user_id,
     ?assert(TomId > BryanId),
@@ -415,6 +420,7 @@ crudl_proto_records_test() ->
     ?assertEqual(<<"foo@gmail.com">>, Bryan7#'test_schema.User'.email),
     ?assertEqual(<<"Bryan">>, Bryan7#'test_schema.User'.first_name),
     ?assertEqual(<<"Hughes">>, Bryan7#'test_schema.User'.last_name),
+    ?assertEqual('BIG_SHOT', Bryan7#'test_schema.User'.user_type),
     ?assertEqual(false, Bryan7#'test_schema.User'.enabled),
 
     UserToken1 = Bryan7#'test_schema.User'.user_token,
@@ -424,7 +430,8 @@ crudl_proto_records_test() ->
     ?assert(UserToken =/= UserToken1),
 
     Enum = user_pb:enum_value_by_symbol('test_schema.User.UserType', Bryan7#'test_schema.User'.user_type),
-    ?assertEqual(4, Enum),
+    ?LOG_INFO("Enum=~0p", [Enum]),
+    ?assertEqual(0, Enum),
 
     % Test our version
     Bryan8 = Bryan7#'test_schema.User'{last_name = <<"Bagby">>},
