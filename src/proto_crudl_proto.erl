@@ -116,6 +116,8 @@ write_options(ProtoFile, Schema, MessageName, JavaPackage) ->
 
 write_special_imports(<<116, 105, 109, 101, 115, 116, 97, 109, 112, _Rest/binary>>) ->
     "import \"google/protobuf/timestamp.proto\";\n";
+write_special_imports(<<"date">>) ->
+    "import \"google/protobuf/timestamp.proto\";\n";
 write_special_imports(_UdtName) ->
     "".
 

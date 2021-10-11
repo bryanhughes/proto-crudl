@@ -20,13 +20,17 @@ generate_functions(postgres, FullPath, Table) ->
     ok = file:write_file(FullPath, ts_support(orddict:to_list(Table#table.columns)), [append]),
     ok = file:write_file(FullPath, empty_map(Table), [append]),
     ok = file:write_file(FullPath, row_decoder(Table), [append]),
-    ok = file:write_file(FullPath, proto_crudl_psql:limit_fun(undefined), [append]),
+    case Table#table.pkey_list of
+        [] ->
+            ok;
+        _ ->
+            ok = file:write_file(FullPath, proto_crudl_psql:limit_fun(undefined), [append])
+    end,
     ok = file:write_file(FullPath, proto_crudl_psql:create_fun(undefined, Table), [append]),
     case Table#table.pkey_list of
         [] ->
             ok;
         _ ->
-            ok = file:write_file(FullPath, proto_crudl_psql:read_or_create_fun(undefined), [append]),
             ok = file:write_file(FullPath, proto_crudl_psql:read_fun(undefined, Table), [append]),
             ok = file:write_file(FullPath, proto_crudl_psql:update_fun(undefined, Table), [append]),
             ok = file:write_file(FullPath, proto_crudl_psql:delete_fun(undefined, Table), [append])
@@ -53,6 +57,8 @@ build_row_args([{_Key, #column{name = N, valid_values = V}} | Rest], Acc) when l
     build_row_args(Rest, [proto_crudl_utils:to_list(N) ++ " := " ++ proto_crudl_utils:camel_case(N) | Acc]);
 build_row_args([{_Key, #column{name = N, udt_name = <<116, 105, 109, 101, 115, 116, 97, 109, 112, _Rest/binary>>}} | Rest], Acc) ->
     build_row_args(Rest, [proto_crudl_utils:to_list(N) ++ " := " ++ proto_crudl_utils:camel_case(N) | Acc]);
+build_row_args([{_Key, #column{name = N, udt_name = <<"date">>}} | Rest], Acc) ->
+    build_row_args(Rest, [proto_crudl_utils:to_list(N) ++ " := " ++ proto_crudl_utils:camel_case(N) | Acc]);
 build_row_args([_Head | Rest], Acc) ->
     build_row_args(Rest, Acc).
 
@@ -64,6 +70,9 @@ build_row_assigns([{_Key, #column{name = N, valid_values = V}} | Rest], Acc) whe
 build_row_assigns([{_Key, #column{name = N, udt_name = <<116, 105, 109, 101, 115, 116, 97, 109, 112, _Rest/binary>>}} | Rest], Acc) ->
     Name = proto_crudl_utils:to_list(N),
     build_row_assigns(Rest, [Name ++ " => " ++ "ts_encode(" ++ proto_crudl_utils:camel_case(N) ++ ")" | Acc]);
+build_row_assigns([{_Key, #column{name = N, udt_name = <<"date">>}} | Rest], Acc) ->
+    Name = proto_crudl_utils:to_list(N),
+    build_row_assigns(Rest, [Name ++ " => " ++ "date_encode(" ++ proto_crudl_utils:camel_case(N) ++ ")" | Acc]);
 build_row_assigns([_Head | Rest], Acc) ->
     build_row_assigns(Rest, Acc).
 

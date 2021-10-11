@@ -249,7 +249,7 @@ process_mapping(_C, [], Table) ->
     {ok, Table};
 process_mapping(C, [{Name, Query} | Rest], Table) ->
     Q = string:to_lower(Query),
-    Expanded = proto_crudl_code:maybe_expand_sql(Table, Query),
+    Expanded = proto_crudl_queries:maybe_expand_sql(Table, Query),
     ResultSets = case {string:prefix(Q, "select"), string:str(Q, "returning")} of
                      {nomatch, 0} ->
                          [];

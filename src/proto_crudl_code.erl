@@ -10,10 +10,7 @@
 -author("bryan").
 
 %% API
--export([generate/3, build_insert_map/1, build_insert_params/1, build_select_map/1, build_select_params/1,
-         build_update_map/1, build_update_params/1, build_delete_map/1, build_delete_params/1,
-         build_lookup_list_map/2, build_list_params/1, build_lookup_params/1, build_update_record/2,
-         build_insert_record/2, build_select_record/2, build_delete_record/2, build_enum_case/1, is_version/2, maybe_expand_sql/2]).
+-export([generate/3, build_enum_case/1, is_version/2]).
 
 -include("proto_crudl.hrl").
 
@@ -26,7 +23,7 @@ generate(ProviderConfig, OutputConfig, Database = #database{tables = TableDict})
     UseRecords = proplists:get_value(use_records, OutputConfig, true),
     UsePackage = proplists:get_value(use_package, OutputConfig, false),
     UseGpb = proplists:get_value(use_gpb, OutputConfig, true),
-    Tables = lists:reverse(dict:to_list(TableDict)),
+    Tables = proto_crudl_queries:build_queries(dict:to_list(TableDict), []),
     generate_sources(Provider, SourcePath, Suffix, UseRecords, UsePackage, UseGpb, Database, Tables).
 
 
@@ -63,7 +60,7 @@ generate_sources(Provider, SourcePath, Suffix, UseRecords, UsePackage, UseGpb, D
     ok = file:write_file(FullPath, Header, [write]),
 
     % Generate our SQL defines for INSERT, SELECT, UPDATE, DELETE, LOOKUP, and custom mappings
-    generate_defines(FullPath, S, N, Table),
+    generate_defines(FullPath, Table),
 
     % Generate any enumerations
     generate_enums(FullPath, orddict:to_list(Table#table.columns)),
@@ -134,47 +131,11 @@ write_record_fields(FullPath, Cnt, StrLen, [ColumnName | Rest], ColDict, Acc) ->
     write_record_fields(FullPath, Cnt + 1, StrLen, Rest, ColDict, [Line | Acc]).
 
 
-generate_defines(FullPath, S, N, Table) ->
-    SelectWLimitStr = build_select_with_limit_sql(S, N, Table),
-    ok = file:write_file(FullPath, "-define(SELECT_WITH_LIMIT, \"" ++ SelectWLimitStr ++ "\").\n", [append]),
-    case Table#table.pkey_list of
-        [] ->
-            ok;
-        _PKeys ->
-            SelectStr = build_select_sql(S, N, Table),
-            ok = file:write_file(FullPath, "-define(SELECT, \"" ++ SelectStr ++ "\").\n", [append])
-    end,
-    InsertStr = build_insert_sql(S, N, Table),
-    ok = file:write_file(FullPath, "-define(INSERT, \"" ++ InsertStr ++ "\").\n", [append]),
-    case Table#table.default_list of
-        [] ->
-            ok;
-        _ ->
-            InsertDefaultsStr = build_insert_defaults_sql(S, N, Table),
-            ok = file:write_file(FullPath, "-define(INSERT_DEFAULTS, \"" ++ InsertDefaultsStr ++ "\").\n", [append])
-    end,
-    case Table#table.pkey_list of
-        [] ->
-            ok;
-        _ ->
-            UpdateStr = build_update_sql(S, N, Table),
-            ok = file:write_file(FullPath, "-define(UPDATE, \"" ++ UpdateStr ++ "\").\n", [append])
-    end,
-    case Table#table.pkey_list of
-        [] ->
-            ok;
-        _ ->
-            DeleteStr = build_delete_sql(S, N, Table),
-            ok = file:write_file(FullPath, "-define(DELETE, \"" ++ DeleteStr ++ "\").\n\n", [append])
-    end,
-    [ok = file:write_file(FullPath, "-define(" ++ string:to_upper(proto_crudl_utils:to_string(LookupName)) ++
-                                    ", \"" ++ LookupStr ++ "\").\n",
-                          [append]) || {LookupName, LookupStr} <- build_lookup_list_sql(Table)],
-    ok = file:write_file(FullPath, "\n", [append]),
-
-    [ok = file:write_file(FullPath, "-define(" ++ string:to_upper(atom_to_list(FunName)) ++ ", \"" ++
-                                    maybe_expand_sql(Table, FunSql) ++ "\").\n",
-                          [append]) || {FunName, #custom_query{query = FunSql}} <- Table#table.mappings].
+generate_defines(FullPath, #table{query_dict = QD}) ->
+    Fun = fun(_Key, #query{name = N, query = Q}, _Acc) ->
+                ok = file:write_file(FullPath, "-define(" ++ N ++ ", \"" ++ Q ++ "\").\n", [append])
+          end,
+    orddict:fold(Fun, [], QD).
 
 
 -spec generate_enums(string(), list({binary(), #column{}})) -> string().
@@ -206,580 +167,68 @@ generate_enum_helpers(FullPath, [_Head | Rest]) ->
     generate_enum_helpers(FullPath, Rest).
 
 
-generate_exports(RecordsOrMaps, FullPath, Table) ->
+generate_exports(RecordsOrMaps, FullPath, Table = #table{query_dict = QD}) ->
     ok = file:write_file(FullPath, "\n%% API\n", [append]),
     case RecordsOrMaps of
         use_maps ->
             ok = file:write_file(FullPath, "-export([from_proto/1,\n"
                                            "         to_proto/1,\n"
-                                           "         new/0,\n"
-                                           "         new_default/0,\n"
-                                           "         create/1,\n", [append]);
+                                           "         new/0,\n", [append]);
         _ ->
-            ok = file:write_file(FullPath, "-export([new/0,\n"
-                                           "         new_default/0,\n"
-                                           "         create/1,\n", [append])
-    end,
-    case Table#table.pkey_list of
-        [] ->
-            ok;
-        _ ->
-            ok = file:write_file(FullPath, "         read_or_create/1,\n"
-                                           "         read/1,\n"
-                                           "         update/1,\n"
-                                           "         delete/1,\n", [append])
+            ok = file:write_file(FullPath, "-export([from_proto/1,\n"
+                                           "         to_proto/1,\n"
+                                           "         new/0,\n", [append])
     end,
 
-    case ["         " ++ proto_crudl_utils:to_string(Idx#index.name) ++ "/1"
-          || Idx <- Table#table.indexes, Idx#index.is_lookup == true] of
-        [] ->
-            ok;
-        Lookups ->
-            ok = file:write_file(FullPath, lists:join(",\n", Lookups), [append]),
-            ok = file:write_file(FullPath, ",\n", [append])
-    end,
-
-    case ["         " ++ proto_crudl_utils:to_string(Idx#index.name) ++ "/3"
-          || Idx <- Table#table.indexes, Idx#index.is_list == true] of
-        [] ->
-            ok;
-        Lists ->
-            ok = file:write_file(FullPath, lists:join(",\n", Lists), [append]),
-            ok = file:write_file(FullPath, ",\n", [append])
-    end,
+    Queries = orddict:to_list(QD),
+    Fun0 = fun({_Key, #query{fun_name = FN, fun_args = FA}}, Acc) ->
+                ["         " ++ FN ++ "/" ++ FA | Acc]
+           end,
+    [ok = file:write_file(FullPath, Line, [append]) || Line <- lists:join(",\n", lists:foldl(Fun0, [], Queries))],
 
     case ["         " ++ atom_to_list(FunName) ++ "/" ++ integer_to_list(proto_crudl_psql:count_params(FunSql))
           || {FunName, #custom_query{query = FunSql}} <- Table#table.mappings] of
         [] ->
             ok;
         Mappings ->
+            ok = file:write_file(FullPath, ",\n", [append]),
             ok = file:write_file(FullPath, lists:join(",\n", Mappings), [append]),
             ok = file:write_file(FullPath, ",\n", [append])
     end,
 
-    case Table#table.has_timestamps of
-        true ->
-            ok = file:write_file(FullPath, "         ts_encode/1,\n"
-                                           "         ts_decode/1,\n", [append]);
-        _ ->
-            ok
-    end,
-
     ColumnList = orddict:to_list(Table#table.columns),
-    Fun = fun({_Key, Column}, Acc) ->
+    Fun1 = fun({_Key, Column}, Acc) ->
                 case length(Column#column.valid_values) of
                     0 ->
                         Acc;
                     _ ->
                         ["         " ++ proto_crudl_utils:to_string(Column#column.name) ++ "_enum/1,\n" ++
-                         "         " ++ proto_crudl_utils:to_string(Column#column.name) ++ "_value/1,\n" | Acc]
+                         "         " ++ proto_crudl_utils:to_string(Column#column.name) ++ "_value/1" | Acc]
                 end
           end,
-    [ok = file:write_file(FullPath, Line, [append]) || Line <- lists:join("\n", lists:foldl(Fun, [], ColumnList))],
+    [ok = file:write_file(FullPath, Line, [append]) || Line <- lists:join(",\n", lists:foldl(Fun1, [], ColumnList))],
 
-    ok = file:write_file(FullPath, "         list/2]).\n\n", [append]).
-
-
-is_lookuplist(#index{is_lookup = true}) ->
-    true;
-is_lookuplist(#index{is_list = true}) ->
-    true;
-is_lookuplist(_) ->
-    false.
-
-
-%% ---- SELECT ----
-
--spec build_select_with_limit_sql(Schema :: string(), Name :: string(), Table :: #table{}) -> SelectStmt :: string().
-%% @doc This function will return the SELECT WITH LIMIT statement based on the applied excluded columns and transformations
-build_select_with_limit_sql(Schema, Name, #table{columns = ColDict, select_list = SelectList}) ->
-    logger:info("Schema=~p, Table=~p", [Schema, Name]),
-    % Now build our select clause using all the columns except those that are excluded
-    Clause1 = build_select_clause(SelectList, ColDict, []),
-    Clause2 = build_select_xforms(SelectList, ColDict, []),
-    lists:flatten("SELECT " ++ lists:join(", ", lists:append(Clause1, Clause2)) ++
-                  " FROM " ++ proto_crudl_utils:to_string(Schema) ++ "." ++ proto_crudl_utils:to_string(Name) ++
-                  " LIMIT $1 OFFSET $2").
-
-
--spec build_select_sql(Schema :: string(), Name :: string(), Table :: #table{}) -> SelectStmt :: string().
-%% @doc This function will return the SELECT statement based on the applied excluded columns and transformations
-build_select_sql(Schema, Name, Table) ->
-    ColDict = Table#table.columns,
-    SelectList = Table#table.select_list,
-    logger:info("Schema=~p, Table=~p", [Schema, Name]),
-    case Table#table.pkey_list of
-        [] ->
-            "";
-        PKColumns ->
-            {_Cnt, PKColumns1} = bind_select_params(1, PKColumns, []),
-
-            % Now build our select clause using all the columns except those that are excluded
-            Clause1 = build_select_clause(SelectList, ColDict, []),
-            Clause2 = build_select_xforms(SelectList, ColDict, []),
-
-            lists:flatten("SELECT " ++ lists:join(", ", lists:append(Clause1, Clause2)) ++
-                          " FROM " ++ proto_crudl_utils:to_string(Schema) ++ "." ++ proto_crudl_utils:to_string(Name) ++
-                          " WHERE " ++ lists:join(" AND ", PKColumns1))
-    end.
-
-build_select_clause([], _ColDict, Acc) ->
-    lists:reverse(Acc);
-build_select_clause([ColumnName | Rest], ColDict, Acc) ->
-    Column = orddict:fetch(ColumnName, ColDict),
-    case Column#column.data_type of
-        <<"virtual">> ->
-            build_select_clause(Rest, ColDict, Acc);
-        _ ->
-            build_select_clause(Rest, ColDict, [proto_crudl_utils:to_string(ColumnName) | Acc])
-    end.
-
-
-build_select_xforms([], _ColDict, Acc) ->
-    lists:reverse(Acc);
-build_select_xforms([ColumnName | Rest], ColDict, Acc) ->
-    Column = orddict:fetch(ColumnName, ColDict),
-    case Column#column.select_xform of
-        undefined ->
-            build_select_xforms(Rest, ColDict, Acc);
-        Operation ->
-            build_select_xforms(Rest, ColDict,
-                                [proto_crudl_utils:to_string(Operation) ++ " AS " ++ proto_crudl_utils:to_string(ColumnName) | Acc])
-    end.
-
-
-bind_select_params(Cnt, [], Acc) ->
-    {Cnt, lists:reverse(Acc)};
-bind_select_params(Cnt, [Name | Rest], Acc) ->
-    bind_select_params(Cnt + 1, Rest, [proto_crudl_utils:to_string(Name) ++ " = $" ++ integer_to_list(Cnt) | Acc]).
-
-
--spec build_select_map(#table{}) -> string().
-build_select_map(#table{pkey_list = Pkeys}) ->
-    PKColumns = lists:reverse([proto_crudl_utils:to_string(Pkey) ++ " := " ++
-                               proto_crudl_utils:camel_case(proto_crudl_utils:to_string(Pkey)) || Pkey <- Pkeys]),
-    lists:flatten("#{" ++ lists:join(", ", PKColumns) ++ "}").
-
--spec build_select_record(string(), #table{}) -> string().
-build_select_record(RecordName, #table{pkey_list = Pkeys}) ->
-    PKColumns = lists:reverse([proto_crudl_utils:to_string(Pkey) ++ " = " ++
-                               proto_crudl_utils:camel_case(proto_crudl_utils:to_string(Pkey)) || Pkey <- Pkeys]),
-    lists:flatten("#" ++ RecordName ++ "{" ++ lists:join(", ", PKColumns) ++ "}").
-
-
--spec build_select_params(#table{}) -> string().
-build_select_params(#table{pkey_list = Pkeys}) ->
-    PKColumns = lists:reverse([proto_crudl_utils:camel_case(proto_crudl_utils:to_string(Pkey)) || Pkey <- Pkeys]),
-    lists:flatten("[" ++ lists:join(", ", PKColumns) ++ "]").
-
-
--spec build_lookup_list_sql(Table :: #table{}) -> SelectStmt :: string().
-%% @doc This function will return a list of LOOKUP statements based on the applied excluded columns and transformations
-build_lookup_list_sql(Table) ->
-    IndexList = lists:reverse(Table#table.indexes),
-    build_lookup_list_sql(Table, IndexList, []).
-
-build_lookup_list_sql(_Table, [], Acc) ->
-    Acc;
-build_lookup_list_sql(Table, [Index | Rest], Acc) ->
-    case is_lookuplist(Index) of
-        false ->
-            build_lookup_list_sql(Table, Rest, Acc);
+    case Table#table.has_dates of
         true ->
-            % Its a list index
-            LookupName = Index#index.name,
-            LookupStr = build_lookup_list_sql(Table, Index),
-            build_lookup_list_sql(Table, Rest, [{LookupName, LookupStr} | Acc])
-    end.
+            ok = file:write_file(FullPath, ",\n         date_encode/1,\n"
+                                           "         date_decode/1", [append]);
+        _ ->
+            ok
+    end,
 
-build_lookup_list_sql(Table, Index) ->
-    Schema = proto_crudl_utils:to_string(Index#index.table_schema),
-    Name = proto_crudl_utils:to_string(Index#index.table_name),
-    ColDict = Table#table.columns,
-    SelectList = Table#table.select_list,
-    LookupColumns = Index#index.columns,
-
-    {_Cnt, LookupColumns1} = bind_select_params(1, LookupColumns, []),
-
-    % Now build our select clause using all the columns except those that are excluded
-    Clause1 = build_select_clause(SelectList, ColDict, []),
-    Clause2 = build_select_xforms(SelectList, ColDict, []),
-
-    lists:flatten("SELECT " ++ lists:join(", ", lists:append(Clause1, Clause2)) ++
-                  " FROM " ++ proto_crudl_utils:to_string(Schema) ++ "." ++ proto_crudl_utils:to_string(Name) ++
-                  " WHERE " ++ lists:join(" AND ", LookupColumns1)).
-
--spec build_lookup_list_map(string() | undefined, [binary()]) -> string().
-build_lookup_list_map(undefined, LookupColumns) ->
-    Columns = lists:reverse([proto_crudl_utils:to_string(C) ++ " := " ++
-                             proto_crudl_utils:camel_case(proto_crudl_utils:to_string(C)) || C <- LookupColumns]),
-    lists:flatten("#{" ++ lists:join(", ", Columns) ++ "}");
-build_lookup_list_map(RecordName, LookupColumns) ->
-    Columns = lists:reverse([proto_crudl_utils:to_string(C) ++ " = " ++
-                             proto_crudl_utils:camel_case(proto_crudl_utils:to_string(C)) || C <- LookupColumns]),
-    lists:flatten("#" ++ RecordName ++ "{" ++ lists:join(", ", Columns) ++ "}").
-
--spec build_list_params([binary()]) -> string().
-build_list_params(LookupColumns) ->
-    Columns = [proto_crudl_utils:camel_case(proto_crudl_utils:to_string(C)) || C <- LookupColumns],
-    lists:flatten("[" ++ lists:join(", ", Columns) ++ ", Limit, Offset]").
-
--spec build_lookup_params([binary()]) -> string().
-build_lookup_params(LookupColumns) ->
-    Columns = [proto_crudl_utils:camel_case(proto_crudl_utils:to_string(C)) || C <- LookupColumns],
-    lists:flatten("[" ++ lists:join(", ", Columns) ++ "]").
-
-
-%% ---- DELETE ----
-
--spec build_delete_sql(Schema :: binary(), Name :: binary(), Table :: #table{}) -> DeleteStmt :: string().
-%% @doc This function will return the DELETE statement based on the applied excluded columns and transformations
-build_delete_sql(Schema, Name, Table) ->
-    logger:info("Schema=~p, Table=~p", [Schema, Name]),
-    PKColumns = lists:reverse([Pkey || Pkey <- Table#table.pkey_list]),
-    {_Cnt, PKColumns1} = bind_select_params(1, PKColumns, []),
-    lists:flatten("DELETE FROM " ++ proto_crudl_utils:to_string(Schema) ++ "." ++ proto_crudl_utils:to_string(Name) ++
-                  " WHERE " ++ lists:join(" AND ", PKColumns1)).
-
-
-
--spec build_delete_map(#table{}) -> string().
-build_delete_map(#table{pkey_list = Pkeys}) ->
-    PKColumns = lists:reverse([proto_crudl_utils:to_string(Pkey) ++ " := " ++
-                               proto_crudl_utils:camel_case(proto_crudl_utils:to_string(Pkey)) || Pkey <- Pkeys]),
-    lists:flatten("#{" ++ lists:join(", ", PKColumns) ++ "}").
-
--spec build_delete_record(string(), #table{}) -> string().
-build_delete_record(RecordName, #table{pkey_list = Pkeys}) ->
-    PKColumns = lists:reverse([proto_crudl_utils:to_string(Pkey) ++ " = " ++
-                               proto_crudl_utils:camel_case(proto_crudl_utils:to_string(Pkey)) || Pkey <- Pkeys]),
-    lists:flatten("#" ++ RecordName ++ "{" ++ lists:join(", ", PKColumns) ++ "}").
-
-
--spec build_delete_params(#table{}) -> string().
-build_delete_params(#table{pkey_list = Pkeys}) ->
-    PKColumns = lists:reverse([proto_crudl_utils:camel_case(proto_crudl_utils:to_string(Pkey)) || Pkey <- Pkeys]),
-    lists:flatten("[" ++ lists:join(", ", PKColumns) ++ "]").
-
-
-
-%% ---- UPDATE ----
-
--spec build_update_sql(Schema :: binary(), Name :: binary(), Table :: #table{}) -> UpdateStmt :: string().
-%% @doc This function will return the UPDATE statement based on the applied excluded columns and transformations
-build_update_sql(Schema, Name, Table) ->
-    ColDict = Table#table.columns,
-    SelectList = Table#table.select_list,
-    UpdateList = Table#table.update_list,
-
-    PKColumns = lists:reverse([Pkey || Pkey <- Table#table.pkey_list]),
-    {Cnt, PKColumns1} = bind_select_params(1, PKColumns, []),
-
-    {_Cnt, Clause} = build_update_clause(Cnt, UpdateList, ColDict, []),
-
-    ColumnList = orddict:fetch_keys(ColDict),
-    Clause1 = build_update_xforms(ColDict, ColumnList, SelectList, []),
-    Clause2 = lists:append(Clause, Clause1),
-
-    % We need our update to return the record...
-    RetClause1 = build_select_clause(SelectList, ColDict, []),
-    RetClause2 = build_select_xforms(SelectList, ColDict, []),
-
-    WhereClause = case Table#table.version_column of
-                      <<>> ->
-                          PKColumns1;
-                      VersionColumn ->
-                          case get_pos(update, ColDict, SelectList, proto_crudl_utils:to_binary(VersionColumn)) of
-                              -1 ->
-                                  io:format("    Failed to find ~p in ~p while building update SQL~n",
-                                            [VersionColumn, SelectList]),
-                                  erlang:error(failed_building_sql);
-                              Pos ->
-                                  lists:append(PKColumns1, [proto_crudl_utils:to_string(VersionColumn) ++ " = $" ++
-                                                            proto_crudl_utils:to_string(Pos)])
-                          end
-                  end,
-
-    logger:info("Clause2=~p, PKColumns1=~p", [Clause2, PKColumns1]),
-    lists:flatten("UPDATE " ++ proto_crudl_utils:to_string(Schema) ++ "." ++ proto_crudl_utils:to_string(Name) ++
-                   " SET " ++ lists:join(", ", Clause2) ++ " WHERE " ++ lists:join(" AND ", WhereClause) ++
-                   " RETURNING " ++ lists:join(", ", lists:append(RetClause1, RetClause2))).
-
-
-build_update_clause(Cnt, [], _ColDict, ClauseAcc) ->
-    {Cnt, lists:reverse(ClauseAcc)};
-build_update_clause(Cnt, [ColumnName | Rest], ColDict, CAcc) ->
-    Cname = proto_crudl_utils:to_string(ColumnName),
-    Column = orddict:fetch(ColumnName, ColDict),
-    case {Column#column.is_sequence, Column#column.data_type, Column#column.is_pkey, Column#column.is_version} of
-        {true, _, _, _} ->
-            build_update_clause(Cnt, Rest, ColDict, CAcc);
-        {_, _, true, _} ->
-            build_update_clause(Cnt, Rest, ColDict, CAcc);
-        {_, <<"virtual">>, _, _} ->
-            build_update_clause(Cnt, Rest, ColDict, CAcc);
-        {_, _, _, true} ->
-            build_update_clause(Cnt + 1, Rest, ColDict, [Cname ++ " = " ++ Cname ++ " + 1"  | CAcc]);
-        {_, _, _, _} ->
-            build_update_clause(Cnt + 1, Rest, ColDict, [Cname ++ " = $" ++ integer_to_list(Cnt) | CAcc])
-    end.
-
-build_update_xforms(_ColDict, [], _SelectList, Clause) ->
-    lists:reverse(Clause);
-build_update_xforms(ColDict, [ColumnName | Rest], SelectList, Clause) ->
-    Column = orddict:fetch(ColumnName, ColDict),
-    case Column#column.update_xform of
-        undefined ->
-            build_update_xforms(ColDict, Rest, SelectList, Clause);
-        Operation ->
-            % Need to map the columns to the select params
-            NewFun = rewrite_xform_fun(update, ColDict, SelectList, proto_crudl_utils:to_string(Operation)),
-            Cname = proto_crudl_utils:to_string(ColumnName),
-            build_update_xforms(ColDict, Rest, SelectList, [Cname ++ " = " ++ NewFun])
-    end.
-
-
--spec build_update_map(#table{}) -> string().
-build_update_map(#table{select_list = SelectList}) ->
-    UpdateColumns = lists:reverse([proto_crudl_utils:to_string(C) ++ " := " ++
-                                   proto_crudl_utils:camel_case(proto_crudl_utils:to_string(C)) || C <- SelectList]),
-    lists:flatten("#{" ++ lists:join(", ", UpdateColumns) ++ "}").
-
--spec build_update_record(string() | undefined, #table{}) -> string().
-build_update_record(RecordName, #table{select_list = SelectList}) ->
-    UpdateColumns = [proto_crudl_utils:to_string(C) ++ " = " ++
-                     proto_crudl_utils:camel_case(proto_crudl_utils:to_string(C)) || C <- SelectList],
-    lists:flatten("#" ++ RecordName ++ "{" ++ lists:join(", ", UpdateColumns) ++ "}").
-
-
--spec build_update_params(#table{}) -> string().
-build_update_params(#table{select_list = SelectList, columns = ColDict}) ->
-    UpdateColumns = handle_mapped_params(update, ColDict, SelectList, []),
-    lists:flatten("[" ++ lists:join(", ", UpdateColumns) ++ "]").
-
-
-%% ---- INSERT ----
-
--spec build_insert_sql(string(), string(), #table{}) -> InsertStmt :: string().
-%% @doc This function will return the INSERT statement based on the applied excluded columns and transformations
-build_insert_sql(S, N, Table) ->
-    ColDict = Table#table.columns,
-    SelectList = Table#table.select_list,
-    InsertList = Table#table.insert_list,
-
-    {_Cnt, Clause, Params} = build_insert_clause(1, InsertList, ColDict, [], []),
-
-    % Now add the insert transforms
-    ColumnList = orddict:fetch_keys(ColDict),
-
-    {Clause1, Params1} = build_insert_xforms(ColDict, ColumnList, InsertList, [], []),
-
-    Clause2 = lists:append(Clause, Clause1),
-    Params2 = lists:append(Params, Params1),
-
-    % We need our update to return the record...
-    RetClause1 = build_select_clause(SelectList, ColDict, []),
-    RetClause2 = build_select_xforms(SelectList, ColDict, []),
-
-    % Now, we need our to add any transforms to the values. For example, the column geog would have an input
-    % that would include the lat, lng and then the output of the geog with a function that references those inputs.
-
-    logger:info("Clause=~p, Params=~p", [Clause2, Params2]),
-    lists:flatten("INSERT INTO " ++ proto_crudl_utils:to_string(S) ++ "." ++ proto_crudl_utils:to_string(N) ++
-                  " (" ++ lists:join(", ", Clause2) ++ ") VALUES (" ++ lists:join(", ", Params2) ++ ")" ++
-                  " RETURNING " ++ lists:join(", ", lists:append(RetClause1, RetClause2))).
-
-
-build_insert_clause(Cnt, [], _ColDict, ClauseAcc, ParamsAcc) ->
-    {Cnt, lists:reverse(ClauseAcc), lists:reverse(ParamsAcc)};
-build_insert_clause(Cnt, [ColumnName | Rest], ColDict, CAcc, PAcc) ->
-    Column = orddict:fetch(ColumnName, ColDict),
-    case {Column#column.is_sequence, Column#column.data_type, Column#column.is_version} of
-        {true, _, _} ->
-            build_insert_clause(Cnt, Rest, ColDict, CAcc, PAcc);
-        {false, <<"virtual">>, _} ->
-            build_insert_clause(Cnt, Rest, ColDict, CAcc, PAcc);
-        {false, _, true} ->
-            build_insert_clause(Cnt, Rest, ColDict, [proto_crudl_utils:to_string(ColumnName) | CAcc], ["0" | PAcc]);
-        {false, _, _} ->
-            build_insert_clause(Cnt + 1, Rest, ColDict,
-                                [proto_crudl_utils:to_string(ColumnName) | CAcc],
-                                ["$" ++ integer_to_list(Cnt) | PAcc])
-    end.
-
-
-build_insert_xforms(_ColDict, [], _SelectList, Clause, Params) ->
-    {lists:reverse(Clause), lists:reverse(Params)};
-build_insert_xforms(ColDict, [ColumnName | Rest], SelectList, Clause, Params) ->
-    Column = orddict:fetch(ColumnName, ColDict),
-    case Column#column.insert_xform of
-        undefined ->
-            build_insert_xforms(ColDict, Rest, SelectList, Clause, Params);
-        Operation ->
-            % Need to map the columns to the select params
-            NewFun = rewrite_xform_fun(insert, ColDict, SelectList, proto_crudl_utils:to_string(Operation)),
-            build_insert_xforms(ColDict, Rest, SelectList,
-                                [proto_crudl_utils:to_string(ColumnName) | Clause],
-                                [NewFun | Params])
-    end.
-
-
--spec build_insert_defaults_sql(Schema :: binary(), Name :: binary(), Table :: #table{}) -> InsertStmt :: string().
-%% @doc This function will return the INSERT_DEFAULTS statement based on the applied excluded columns and transformations
-build_insert_defaults_sql(Schema, Name, #table{columns = ColDict,
-                                               insert_list = InsertList,
-                                               select_list = SelectList,
-                                               default_list = DefaultList}) ->
-    IList = [C || C <- InsertList, lists:member(C, DefaultList) == false],
-
-    logger:info("Schema=~p, Table=~p, IList=~p", [Schema, Name, IList]),
-
-    {_Cnt, Clause, Params} = build_insert_clause(1, IList, ColDict, [], []),
-
-    % Now add the insert transforms
-    ColumnList = orddict:fetch_keys(ColDict),
-    {Clause1, Params1} = build_insert_xforms(ColDict, ColumnList, IList, [], []),
-
-    Clause2 = lists:append(Clause, Clause1),
-    Params2 = lists:append(Params, Params1),
-
-    % We need our update to return the record...
-    RetClause1 = build_select_clause(SelectList, ColDict, []),
-    RetClause2 = build_select_xforms(SelectList, ColDict, []),
-
-    % Now, we need our to add any transforms to the values. For example, the column geog would have an input
-    % that would include the lat, lng and then the output of the geog with a function that references those inputs.
-
-    lists:flatten("INSERT INTO " ++ proto_crudl_utils:to_string(Schema) ++ "." ++ proto_crudl_utils:to_string(Name) ++
-                  " (" ++ lists:join(", ", Clause2) ++ ") VALUES (" ++ lists:join(", ", Params2) ++ ")" ++
-                  " RETURNING " ++ lists:join(", ", lists:append(RetClause1, RetClause2))).
-
-
--spec build_insert_map(#table{}) -> {string(), string()}.
-build_insert_map(#table{columns = ColDict, insert_list = InsertList, default_list = DefaultList}) ->
-    InsertColumns = lists:reverse([proto_crudl_utils:to_string(C) ++ " := " ++
-                                   proto_crudl_utils:camel_case(proto_crudl_utils:to_string(C)) || C <- InsertList,
-                                   is_version(ColDict, C) == false]),
-    InsertColumnsWODefault = lists:reverse([proto_crudl_utils:to_string(C) ++ " := " ++
-                                            proto_crudl_utils:camel_case(proto_crudl_utils:to_string(C)) || C <- InsertList,
-                                            lists:member(C, DefaultList) == false andalso is_version(ColDict, C) == false]),
-    {lists:flatten("#{" ++ lists:join(", ", InsertColumns) ++ "}"),
-     lists:flatten("#{" ++ lists:join(", ", InsertColumnsWODefault) ++ "}")}.
-
--spec build_insert_record(string(), #table{}) -> {string(), string()}.
-build_insert_record(RecordName, #table{columns = ColDict, insert_list = InsertList, default_list = DefaultList}) ->
-    InsertColumns = [proto_crudl_utils:to_string(C) ++ " = " ++
-                     proto_crudl_utils:camel_case(proto_crudl_utils:to_string(C)) || C <- InsertList,
-                     is_version(ColDict, C) == false],
-    Fun = fun(C, Acc) ->
-            case {is_version(ColDict, C), lists:member(C, DefaultList)} of
-                {true, _} -> Acc;
-                {false, true} -> [proto_crudl_utils:to_string(C) ++ " = " ++ "default" | Acc];
-                {false, false} -> [proto_crudl_utils:to_string(C) ++ " = " ++ proto_crudl_utils:camel_case(proto_crudl_utils:to_string(C)) | Acc]
-            end
-          end,
-    InsertColumnsWODefaults = lists:reverse(lists:foldl(Fun, [], InsertList)),
-    {lists:flatten("#" ++ RecordName ++ "{" ++ lists:join(", ", InsertColumns) ++ "}"),
-     lists:flatten("#" ++ RecordName ++ "{" ++ lists:join(", ", InsertColumnsWODefaults) ++ "}")}.
+    case Table#table.has_timestamps of
+        true ->
+            ok = file:write_file(FullPath, ",\n         ts_encode/1,\n"
+                                           "         ts_decode/1", [append]);
+        _ ->
+            ok
+    end,
+    ok = file:write_file(FullPath, "]).\n\n", [append]).
 
 -spec is_version(orddict:dict(), binary()) -> boolean().
 is_version(ColDict, C) when is_binary(C) ->
     Column = orddict:fetch(C, ColDict),
     Column#column.is_version.
-
--spec build_insert_params(#table{}) -> {string(), string()}.
-build_insert_params(#table{insert_list = InsertList, default_list = DefaultList, columns = ColDict}) ->
-    InsertColumns = handle_mapped_params(insert, ColDict, InsertList, []),
-    InsertColumnsWODefaults = handle_mapped_params(insert, ColDict, lists:subtract(InsertList, DefaultList), []),
-    {lists:flatten("[" ++ lists:join(", ", InsertColumns) ++ "]"),
-     lists:flatten("[" ++ lists:join(", ", InsertColumnsWODefaults) ++ "]")}.
-
-
-handle_mapped_params(_Which, _ColDict, [], Acc) ->
-    lists:reverse(Acc);
-handle_mapped_params(Which, ColDict, [CName | Rest], Acc) ->
-    C = orddict:fetch(CName, ColDict),
-    case {Which, C#column.is_version, length(C#column.valid_values)} of
-        {insert, true, _} ->
-            handle_mapped_params(Which, ColDict, Rest, Acc);
-        {_, _, 0} ->
-            case proto_crudl_psql:is_timestamp(C#column.udt_name) of
-                true ->
-                    handle_mapped_params(Which, ColDict, Rest,
-                                         ["ts_decode(" ++ proto_crudl_utils:camel_case(CName) ++ ")" | Acc]);
-                false ->
-                    handle_mapped_params(Which, ColDict, Rest,
-                                         [proto_crudl_utils:camel_case(proto_crudl_utils:to_string(CName)) | Acc])
-            end;
-        {_, _, _} ->
-            handle_mapped_params(Which, ColDict, Rest, [proto_crudl_utils:to_string(CName) ++ "_value(" ++
-                                                        proto_crudl_utils:camel_case(CName) ++ ")" | Acc])
-    end.
-
--spec rewrite_xform_fun(update | insert, orddict:dict(), list(), binary()) -> string().
-rewrite_xform_fun(Which, ColDict, SelectList, Operator) ->
-    case erl_scan:string(Operator) of
-        {ok, Tokens, _} ->
-            % The expected cases are: [$column, ...], func($column1, ...)], [func()], [func(func($column1, ...))]
-            logger:info("Tokens=~0p, SelectList=~0p", [Tokens, SelectList]),
-            rewrite_func_params(Which, ColDict, SelectList, Operator, Tokens);
-        {error, Reason} ->
-            io:format("ERROR: Failed to parse transform function. Fun=~p, Reason=~p", [Operator, Reason]),
-            failed
-    end.
-
-
--spec rewrite_func_params(update | insert, orddict:dict(), list(), string(), list()) -> string().
-rewrite_func_params(_Which, _ColDict, _SelectList, Fun, []) ->
-    Fun;
-rewrite_func_params(Which, ColDict, SelectList, Fun, [{char, 1, Chr}, {atom, 1, Remaining} | Rest]) ->
-    % We have the parameter name
-    Name = proto_crudl_utils:to_binary(lists:flatten([Chr, atom_to_list(Remaining)])),
-    % Now find the position in the read list
-    case get_pos(Which, ColDict, SelectList, Name) of
-        -1 ->
-            io:format("    ERROR: Failed to find ~p in column list ~p (~p)~n", [Name, SelectList, Which]),
-            erlang:error(failed_rewrite);
-        Pos ->
-            logger:info("Name=~p, Pos=~p", [Name, Pos]),
-            NewFun = lists:flatten(string:replace(Fun, "$" ++ Name, "$" ++ integer_to_list(Pos))),
-            logger:info("NewFun=~p", [NewFun]),
-            rewrite_func_params(Which, ColDict, SelectList, NewFun, Rest)
-    end;
-rewrite_func_params(Which, ColDict, SelectList, Fun, [{char, 1, Chr} | Rest]) ->
-    Name = proto_crudl_utils:to_binary(lists:flatten([Chr])),
-    case get_pos(Which, ColDict, SelectList, Name) of
-        -1 ->
-            io:format("    ERROR: Failed to find ~p in column list ~p (~p)~n", [Name, SelectList, Which]),
-            erlang:error(failed_rewrite);
-        Pos ->
-            logger:info("Name=~p, Pos=~p", [Name, Pos]),
-            NewFun = lists:flatten(string:replace(Fun, "$" ++ Name, "$" ++ integer_to_list(Pos))),
-            logger:info("NewFun=~p", [NewFun]),
-            rewrite_func_params(Which, ColDict, SelectList, NewFun, Rest)
-    end;
-rewrite_func_params(Which, ColDict, SelectList, Fun, [_H | Rest]) ->
-    rewrite_func_params(Which, ColDict, SelectList, Fun, Rest).
-
-get_pos(Which, ColDict, SelectList, Name) ->
-    get_pos(Which, ColDict, 1, SelectList, Name).
-
-get_pos(_Which, _ColDict, _Pos, [], _Name) ->
-    -1;
-get_pos(_Which, _ColDict, Pos, [Name | _Rest], Name) ->
-    Pos;
-get_pos(insert, ColDict, Pos, [Head | Rest], Name) ->
-    case orddict:find(Head, ColDict) of
-        {ok, #column{is_sequence = true}} ->
-            get_pos(insert, ColDict, Pos, Rest, Name);
-        {ok, #column{is_version = true}} ->
-            get_pos(insert, ColDict, Pos, Rest, Name);
-        {ok, _} ->
-            get_pos(insert, ColDict, Pos + 1, Rest, Name)
-    end;
-get_pos(update, ColDict, Pos, [_Head | Rest], Name) ->
-    get_pos(update, ColDict, Pos + 1, Rest, Name).
-
 
 -spec build_enum_case(#table{}) -> string().
 build_enum_case(#table{columns = ColDict}) ->
@@ -801,17 +250,6 @@ build_enum_cases([{_Key, #column{name = N, valid_values = VV}} | Rest], Acc) whe
 build_enum_cases([_Head | Rest], Acc) ->
     build_enum_cases(Rest, Acc).
 
-maybe_expand_sql(#table{columns = ColDict, select_list = SelectList}, Query) ->
-    case string:str(Query, "*") > 0 of
-        true ->
-            Clause1 = build_select_clause(SelectList, ColDict, []),
-            Clause2 = build_select_xforms(SelectList, ColDict, []),
-            Expanded = lists:join(", ", lists:append(Clause1, Clause2)),
-            lists:flatten(string:replace(Query, "*", Expanded));
-        _ ->
-            Query
-    end.
-
 %%
 %% Tests
 %%
@@ -826,196 +264,7 @@ first_test() ->
     logger:set_primary_config(level, info),
     ok.
 
-is_lookuplist_test() ->
-    I0 = #index{},
-    I1 = #index{is_list = true},
-    I2 = #index{is_lookup = true},
 
-    false = is_lookuplist(I0),
-    true = is_lookuplist(I1),
-    true = is_lookuplist(I2).
-
-define_test() ->
-    ?LOG_INFO("====================== define_test() START ======================"),
-
-    {ok, C} = epgsql:connect(#{host => "localhost",
-                               port => 5432,
-                               username => "proto_crudl",
-                               password => "proto_crudl",
-                               database => "proto_crudl",
-                               timeout => 4000}),
-
-    {ok, Database} = proto_crudl_psql:read_database(C, [{schemas, ["public", "test_schema"]},
-                                                        {excluded, ["public.excluded", "spatial_ref_sys"]}]),
-
-    Configs = [
-        {transforms, [
-            {"test_schema.user", [
-                % For the select transform, we need to know the datatype of the product of the transform. This is needed for
-                % generating the protobufs
-                {select, [{"lat", "decimal", "ST_Y(geog::geometry)"},
-                          {"lon", "decimal", "ST_X(geog::geometry)"}]},
-                {insert, [{"geog", "geography", "ST_POINT($lon, $lat)::geography"}]},
-                {update, [{"geog", "geography", "ST_POINT($lon, $lat)::geography"}]}]},
-            {"public.foo", [
-                {select, [{"foobar", "integer", "1"}]}]}
-        ]},
-        {exclude_columns, [
-            {"test_schema.user", ["pword_hash", "geog"]}
-        ]},
-        {mapping, [
-            {"test_schema.user", [
-                {get_pword_hash, "SELECT pword_hash FROM test_schema.user WHERE email = $1"},
-                {update_pword_hash, "UPDATE test_schema.user SET pword_hash = $2 WHERE email = $1"},
-                {reset_pword_hash, "UPDATE test_schema.user SET pword_hash = NULL WHERE email = $1"},
-                {disable_user, "UPDATE test_schema.user SET enabled = false WHERE email = $1"},
-                {enable_user, "UPDATE test_schema.user SET enabled = true WHERE email = $1"},
-                {delete_user_by_email, "DELETE FROM test_schema.user WHERE email = $1"},
-                {set_token, "UPDATE test_schema.user SET user_token = uuid_generate_v4() WHERE user_id = $1 RETURNING user_token"},
-                {find_nearest, "SELECT *, ST_X(geog::geometry) AS lon, ST_Y(geog::geometry) AS lat FROM test_schema.user "
-                               "WHERE ST_DWithin( geog, Geography(ST_MakePoint($1, $2)), $3 ) "
-                               "ORDER BY geog <-> ST_POINT($1, $2)::geography"}
-            ]}
-        ]}],
-
-    {ok, Database1} = proto_crudl:process_configs(C, Configs, Database),
-    TablesDict = Database1#database.tables,
-    {ok, UserTable} = dict:find(<<"test_schema.user">>, TablesDict),
-
-    S = UserTable#table.schema,
-    N = UserTable#table.name,
-
-    SelectOutput = build_select_sql(S, N, UserTable),
-    ?LOG_INFO("SelectOutput=~p~n", [SelectOutput]),
-    SelectAssert = "SELECT user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon FROM test_schema.user WHERE user_id = $1",
-    ?assertEqual(SelectAssert, SelectOutput),
-
-    InsertOutput = build_insert_sql(S, N, UserTable),
-    ?LOG_INFO("InsertOutput=~p~n", [InsertOutput]),
-    InsertAssert = "INSERT INTO test_schema.user (first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, geog) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, ST_POINT($15, $14)::geography) RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon",
-    ?assertEqual(InsertAssert, InsertOutput),
-
-    DefaultOutput = build_insert_defaults_sql(S, N, UserTable),
-    ?LOG_INFO("DefaultOutput=~p~n", [DefaultOutput]),
-    DefaultAssert = "INSERT INTO test_schema.user (first_name, last_name, email, aka_id, my_array, user_type, number_value, updated_on, due_date, user_state, geog) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, ST_POINT($12, $11)::geography) RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon",
-    ?assertEqual(DefaultAssert, DefaultOutput),
-
-    UpdateOutput = build_update_sql(S, N, UserTable),
-    ?LOG_INFO("UpdateOutput=~p~n", [UpdateOutput]),
-    UpdateAssert = "UPDATE test_schema.user SET first_name = $2, last_name = $3, email = $4, user_token = $5, enabled = $6, aka_id = $7, my_array = $8, user_type = $9, number_value = $10, created_on = $11, updated_on = $12, due_date = $13, user_state = $14, geog = ST_POINT($16, $15)::geography WHERE user_id = $1 RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon",
-    ?assertEqual(UpdateAssert, UpdateOutput),
-
-    DeleteOutput = build_delete_sql(S, N, UserTable),
-    ?LOG_INFO("DeleteOutput=~p~n", [DeleteOutput]),
-    DeleteAssert = "DELETE FROM test_schema.user WHERE user_id = $1",
-    ?assertEqual(DeleteAssert, DeleteOutput),
-
-    ExpandedOutput = maybe_expand_sql(UserTable, "SELECT * FROM test_schema.user"),
-    ?LOG_INFO("ExpandedOutput=~p", [ExpandedOutput]),
-    ExpandedAssert = "SELECT user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon FROM test_schema.user",
-    ?assertEqual(ExpandedAssert, ExpandedOutput),
-
-    ok = epgsql:close(C),
-
-    ?LOG_INFO("====================== define_test() END ======================"),
-    ok.
-
-% SIDE-EFFECTS FROM ALTERING A TABLE, RUN THIS NEXT TO LAST
-inject_version_test() ->
-    ?LOG_INFO("====================== inject_version_test() START ======================"),
-
-    {ok, C} = epgsql:connect(#{host => "localhost",
-                               port => 5432,
-                               username => "proto_crudl",
-                               password => "proto_crudl",
-                               database => "proto_crudl",
-                               timeout => 4000}),
-
-    {ok, Database} = proto_crudl_psql:read_database(C, [{schemas, ["public", "test_schema"]},
-                                                        {excluded, ["public.excluded", "spatial_ref_sys"]}]),
-
-    Configs = [
-        {options, [{version_column, "version"}, indexed_lookups, check_constraints_as_enums]},
-        {transforms, [
-            {"test_schema.user", [
-                % For the select transform, we need to know the datatype of the product of the transform. This is needed for
-                % generating the protobufs
-                {select, [{"lat", "decimal", "ST_Y(geog::geometry)"},
-                          {"lon", "decimal", "ST_X(geog::geometry)"}]},
-                {insert, [{"geog", "geography", "ST_POINT($lon, $lat)::geography"}]},
-                {update, [{"geog", "geography", "ST_POINT($lon, $lat)::geography"}]}]},
-            {"public.foo", [{select, [{"foobar", "integer", "1"}]}]}
-        ]},
-        {exclude_columns, [{"test_schema.user", ["pword_hash", "geog"]}]}],
-
-    {ok, Database1} = proto_crudl:process_configs(C, Configs, Database),
-    TablesDict = Database1#database.tables,
-    {ok, UserTable} = dict:find(<<"test_schema.user">>, TablesDict),
-
-    SelectList = UserTable#table.select_list,
-    ?LOG_INFO("SelectList=~p", [SelectList]),
-    ?assertEqual([<<"user_id">>,<<"first_name">>,<<"last_name">>,<<"email">>,
-                  <<"user_token">>,<<"enabled">>,<<"aka_id">>,<<"my_array">>,
-                  <<"user_type">>,<<"number_value">>,<<"created_on">>,
-                  <<"updated_on">>,<<"due_date">>,<<"user_state">>,<<"version">>,<<"lat">>,<<"lon">>], SelectList),
-
-    ColumnList = orddict:fetch_keys(UserTable#table.columns),
-    ?LOG_INFO("ColumnList=~p", [ColumnList]),
-    ?assertEqual([<<"aka_id">>,<<"created_on">>,<<"due_date">>,<<"email">>,
-                  <<"enabled">>,<<"first_name">>,<<"geog">>,<<"last_name">>,
-                  <<"lat">>,<<"lon">>,<<"my_array">>,<<"number_value">>,
-                  <<"pword_hash">>,<<"updated_on">>,<<"user_id">>,
-                  <<"user_state">>,<<"user_token">>,<<"user_type">>,<<"version">>], ColumnList),
-
-    Version = orddict:fetch(<<"version">>, UserTable#table.columns),
-    ?assertEqual(true, Version#column.is_version),
-
-    ?assertEqual(<<"version">>, UserTable#table.version_column),
-
-    InsertOutput = build_insert_sql(UserTable#table.schema, UserTable#table.name, UserTable),
-    ?LOG_INFO("InsertOutput=~p~n", [InsertOutput]),
-    InsertAssert = "INSERT INTO test_schema.user (first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, version, geog) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 0, ST_POINT($15, $14)::geography) RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, version, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon",
-    ?assertEqual(InsertAssert, InsertOutput),
-
-    UpdateOutput = build_update_sql(UserTable#table.schema, UserTable#table.name, UserTable),
-    ?LOG_INFO("UpdateOutput=~p~n", [UpdateOutput]),
-    UpdateAssert = "UPDATE test_schema.user SET first_name = $2, last_name = $3, email = $4, user_token = $5, enabled = $6, aka_id = $7, my_array = $8, user_type = $9, number_value = $10, created_on = $11, updated_on = $12, due_date = $13, user_state = $14, version = version + 1, geog = ST_POINT($17, $16)::geography WHERE user_id = $1 AND version = $15 RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, version, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon",
-    ?assertEqual(UpdateAssert, UpdateOutput),
-
-    {Map, DMap} = build_insert_map(UserTable),
-    ?LOG_INFO("Map=~p, DMap=~p", [Map, DMap]),
-
-    ExpectedMap = "#{lon := Lon, lat := Lat, user_state := UserState, due_date := DueDate, updated_on := UpdatedOn, created_on := CreatedOn, number_value := NumberValue, user_type := UserType, my_array := MyArray, aka_id := AkaId, enabled := Enabled, user_token := UserToken, email := Email, last_name := LastName, first_name := FirstName}",
-    ?assertEqual(ExpectedMap, Map),
-
-    ExpectedDMap = "#{lon := Lon, lat := Lat, user_state := UserState, due_date := DueDate, updated_on := UpdatedOn, number_value := NumberValue, user_type := UserType, my_array := MyArray, aka_id := AkaId, email := Email, last_name := LastName, first_name := FirstName}",
-    ?assertEqual(ExpectedDMap, DMap),
-
-    {Param, DParam} = build_insert_params(UserTable),
-    ?LOG_INFO("Param=~p, DParam=~p", [Param, DParam]),
-
-    ExpectedParam = "[FirstName, LastName, Email, UserToken, Enabled, AkaId, MyArray, user_type_value(UserType), NumberValue, ts_decode(CreatedOn), ts_decode(UpdatedOn), DueDate, user_state_value(UserState), Lat, Lon]",
-    ?assertEqual(ExpectedParam, Param),
-
-    ExpectedDParam = "[FirstName, LastName, Email, AkaId, MyArray, user_type_value(UserType), NumberValue, ts_decode(UpdatedOn), DueDate, user_state_value(UserState), Lat, Lon]",
-    ?assertEqual(ExpectedDParam, DParam),
-
-    Map0 = build_update_map(UserTable),
-    ?LOG_INFO("Map0=~p", [Map0]),
-
-    ExpectedMap0 = "#{lon := Lon, lat := Lat, version := Version, user_state := UserState, due_date := DueDate, updated_on := UpdatedOn, created_on := CreatedOn, number_value := NumberValue, user_type := UserType, my_array := MyArray, aka_id := AkaId, enabled := Enabled, user_token := UserToken, email := Email, last_name := LastName, first_name := FirstName, user_id := UserId}",
-    ?assertEqual(ExpectedMap0, Map0),
-
-    Param0 = build_update_params(UserTable),
-    ?LOG_INFO("Param0=~p", [Param0]),
-
-    ExpectedParam0 = "[UserId, FirstName, LastName, Email, UserToken, Enabled, AkaId, MyArray, user_type_value(UserType), NumberValue, ts_decode(CreatedOn), ts_decode(UpdatedOn), DueDate, user_state_value(UserState), Version, Lat, Lon]",
-    ?assertEqual(ExpectedParam0, Param0),
-
-    ok = epgsql:close(C),
-
-    ?LOG_INFO("====================== inject_version_test() END ======================"),
-    ok.
 
 cleanup_version(_C, []) ->
     ok;

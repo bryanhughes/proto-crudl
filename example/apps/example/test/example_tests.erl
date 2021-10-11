@@ -48,60 +48,38 @@ crudl_proto_maps_test() ->
             erlang:error(Reason)
     end,
 
-    % Do some bad tests against our enum/check constraint
-    BadBryan = (test_schema_user_db:new_default())#{first_name => <<"Bryan">>, last_name => <<"Hughes">>,
-                                                    email => <<"hughesb@gmail.com">>, my_array => [1, 2, 3]},
-    ?LOG_INFO("Creating bad user=~p", [BadBryan]),
-    {error, Reason0} = test_schema_user_db:create(BadBryan),
-    ?LOG_INFO("Reason=~p", [Reason0]),
-
-    BadBryan1 = (test_schema_user_db:new_default())#{first_name => <<"Bryan">>, last_name => <<"Hughes">>,
-                                                     email => <<"hughesb@gmail.com">>, user_type => 'FOOBAR',
-                                                     number_value => 100, created_on => 0, my_array => [1, 2, 3]},
-    ?LOG_INFO("Creating bad user=~p", [BadBryan1]),
-    {error, Reason1} = test_schema_user_db:create(BadBryan1),
-    ?LOG_INFO("Reason=~p", [Reason1]),
-
-
     % Do a good create
-    Bryan = (test_schema_user_db:new_default())#{first_name => <<"Bryan">>, last_name => <<"Hughes">>,
-                                                 email => <<"hughesb@gmail.com">>, user_type => 'BIG_SHOT',
-                                                 number_value => 100, created_on => {{2021, 2, 23}, {10, 23, 23.5}},
-                                                 my_array => [1, 2, 3]},
+    {ok, Bryan} = test_schema_user_db:create(<<"Bryan">>, <<"Hughes">>, <<"hughesb@gmail.com">>, undefined,
+                                             [1, 2, 3], 'BIG_SHOT', 100, undefined, {{2021, 2, 23}, {10, 23, 23.5}},
+                                             undefined, undefined, undefined),
     ?LOG_INFO("Bryan=~p", [Bryan]),
-    {ok, Bryan1} = test_schema_user_db:create(Bryan),
-    ?LOG_INFO("Bryan1=~p", [Bryan1]),
-    ?assertEqual(<<"hughesb@gmail.com">>, maps:get(email, Bryan1)),
-    ?assertEqual(<<"Bryan">>, maps:get(first_name, Bryan1)),
-    ?assertEqual(<<"Hughes">>, maps:get(last_name, Bryan1)),
-    ?assertEqual([1, 2, 3], maps:get(my_array, Bryan1)),
-    ?assertEqual('BIG_SHOT', maps:get(user_type, Bryan1)),
-    ?assertEqual(0, maps:get(version, Bryan1)),
-    ?assertEqual({{2021, 2, 23}, {10, 23, 23.5}}, test_schema_user_db:ts_decode(maps:get(created_on, Bryan1))),
+    ?assertEqual(<<"hughesb@gmail.com">>, maps:get(email, Bryan)),
+    ?assertEqual(<<"Bryan">>, maps:get(first_name, Bryan)),
+    ?assertEqual(<<"Hughes">>, maps:get(last_name, Bryan)),
+    ?assertEqual([1, 2, 3], maps:get(my_array, Bryan)),
+    ?assertEqual('BIG_SHOT', maps:get(user_type, Bryan)),
+    ?assertEqual(0, maps:get(version, Bryan)),
+    ?assertEqual({{2021, 2, 23}, {10, 23, 23.5}}, test_schema_user_db:ts_decode(maps:get(created_on, Bryan))),
 
     % The code was generated with {use_defaults, true}, while non-foreign keys are set to a default or empty value
     % because of the proto3 code generation, foreign key columns are still null
-    ?assertEqual(null, maps:get(aka_id, Bryan1)),
+    ?assertEqual(null, maps:get(aka_id, Bryan)),
 
-    BryanId = maps:get(user_id, Bryan1),
+    BryanId = maps:get(user_id, Bryan),
     ?assert(BryanId > 0),
 
-    Tom1 = (test_schema_user_db:new_default())#{first_name => <<"Tom">>, email => <<"tombagby@gmail.com">>,
-                                                user_type => '_123FUN',
-                                                number_value => 100, created_on => {{2021, 2, 23}, {0, 0, 0}},
-                                                my_array => [100, 200, 300]},
-    ?LOG_INFO("Creating user=~p", [Tom1]),
-    {ok, Tom2} = test_schema_user_db:create(Tom1),
+    {ok, Tom} = test_schema_user_db:create(<<"Tom">>, undefined, <<"tombagby@gmail.com">>, undefined, [100, 200, 300],
+                                           '_123FUN', 100, undefined, {{2021, 2, 23}, {0, 0, 0}}, undefined, ?LON_0, ?LAT_0),
 
-    ?LOG_INFO("Tom2=~p", [Tom2]),
-    ?assertEqual(<<"tombagby@gmail.com">>, maps:get(email, Tom2)),
-    ?assertEqual(<<"Tom">>, maps:get(first_name, Tom2)),
-    ?assertEqual(null, maps:get(last_name, Tom2)),
+    ?LOG_INFO("Tom=~p", [Tom]),
+    ?assertEqual(<<"tombagby@gmail.com">>, maps:get(email, Tom)),
+    ?assertEqual(<<"Tom">>, maps:get(first_name, Tom)),
+    ?assertEqual(null, maps:get(last_name, Tom)),
 
-    TomId = maps:get(user_id, Tom2),
+    TomId = maps:get(user_id, Tom),
     ?assert(TomId > BryanId),
 
-    ?LOG_INFO("Reading Bryan back=~p", [BryanId]),
+    ?LOG_INFO("Reading Bryan back, user_id=~p", [BryanId]),
 
     % The internal utility is to convert the results into a list of maps where each map is a record. Even though a read
     % will always return a single record, it still uses the same implementation, versus just {ok, Map}.
@@ -119,7 +97,7 @@ crudl_proto_maps_test() ->
     {ok, Bryan4a} = test_schema_user_db:update(Bryan4),
     ?assertEqual(1, maps:get(version, Bryan4a)),
 
-    {ok, Bryan5} = test_schema_user_db:read(Bryan1),
+    {ok, Bryan5} = test_schema_user_db:read(Bryan),
     ?LOG_INFO("Bryan5=~p", [Bryan5]),
 
     ?assertEqual(<<"foo@gmail.com">>, maps:get(email, Bryan5)),
@@ -200,7 +178,7 @@ crudl_proto_maps_test() ->
     ?LOG_INFO("Bryan7=~p", [Bryan7]),
 
     %% Do some encoding/decoding
-    Encoded = user_pb:encode_msg(test_schema_user_db:to_proto(Bryan7), 'test_schema.User'),
+    Encoded = user_pb:encode_msg(Bryan7, 'test_schema.User'),
     ?assert(size(Encoded) > 1),
     Decoded = user_pb:decode_msg(Encoded, 'test_schema.User'),
     ?LOG_INFO("Decoded=~0p", [Decoded]),
@@ -225,26 +203,20 @@ custom_query_map_test() ->
             erlang:error(Reason)
     end,
 
-    Bryan = (test_schema_user_db:new_default())#{first_name => <<"Bryan">>, last_name => <<"Hughes">>,
-                                                 email => <<"hughesb@gmail.com">>, user_type => 'BIG_SHOT',
-                                                 number_value => 100, created_on => {{2021, 2, 23}, {10, 23, 23.5}},
-                                                 my_array => [1, 2, 3], lat => ?LAT_0, lon => ?LON_0},
+    {ok, Bryan} = test_schema_user_db:create(<<"Bryan">>, <<"Hughes">>, <<"hughesb@gmail.com">>, undefined,
+                                             [1, 2, 3], 'BIG_SHOT', 100, undefined, {{2021, 2, 23}, {10, 23, 23.5}},
+                                             undefined, ?LON_0, ?LAT_0),
     ?LOG_INFO("Bryan=~p", [Bryan]),
-    {ok, Bryan1} = test_schema_user_db:create(Bryan),
-    ?LOG_INFO("Bryan1=~p", [Bryan1]),
-    ?assertEqual(?LAT_0, maps:get(lat, Bryan1)),
-    ?assertEqual(?LON_0, maps:get(lon, Bryan1)),
+    ?assertEqual(?LAT_0, maps:get(lat, Bryan)),
+    ?assertEqual(?LON_0, maps:get(lon, Bryan)),
 
-    Tom = (test_schema_user_db:new_default())#{first_name => <<"Tom">>, email => <<"tombagby@gmail.com">>,
-                                               user_type => '_123FUN',
-                                               number_value => 100, created_on => {{2021, 2, 23}, {0, 0, 0}},
-                                               my_array => [100, 200, 300], lat => ?LAT_1, lon => ?LON_1},
-    ?LOG_INFO("Creating user=~p", [Tom]),
-    {ok, Tom1} = test_schema_user_db:create(Tom),
+    {ok, Tom} = test_schema_user_db:create(<<"Tom">>, undefined, <<"tombagby@gmail.com">>, undefined, [100, 200, 300],
+                                           '_123FUN', 100, undefined, {{2021, 2, 23}, {0, 0, 0}}, undefined,
+                                           ?LON_1, ?LAT_1),
 
-    ?LOG_INFO("Tom1=~p", [Tom1]),
-    ?assertEqual(?LAT_1, maps:get(lat, Tom1)),
-    ?assertEqual(?LON_1, maps:get(lon, Tom1)),
+    ?LOG_INFO("Tom=~p", [Tom]),
+    ?assertEqual(?LAT_1, maps:get(lat, Tom)),
+    ?assertEqual(?LON_1, maps:get(lon, Tom)),
 
     Result0 = test_schema_user_db:find_nearest(?LON_0, ?LAT_0, 10),
     ?LOG_INFO("Result0=~p", [Result0]),
@@ -272,74 +244,42 @@ crudl_proto_records_test() ->
             erlang:error(Reason)
     end,
 
-    % Do some bad tests against our enum/check constraint
-    BadBryan = (test_schema_user_db:new_default())#'test_schema.User'{first_name = <<"Bryan">>,
-                                                                      last_name  = <<"Hughes">>,
-                                                                      email      = <<"hughesb@gmail.com">>,
-                                                                      my_array   = [1, 2, 3]},
-    ?LOG_INFO("Creating bad user=~0p", [BadBryan]),
-    {error, Reason0} = test_schema_user_db:create(BadBryan),
-    ?LOG_INFO("Reason=~0p", [Reason0]),
-
-    BadBryan1 = (test_schema_user_db:new_default())#'test_schema.User'{first_name   = <<"Bryan">>,
-                                                                       last_name    = <<"Hughes">>,
-                                                                       email        = <<"hughesb@gmail.com">>,
-                                                                       user_type    = 'FOOBAR',
-                                                                       user_state   = 'living',
-                                                                       number_value = 100,
-                                                                       my_array     = [1, 2, 3]},
-    ?LOG_INFO("Creating bad user=~0p", [BadBryan1]),
-    {error, Reason1} = test_schema_user_db:create(BadBryan1),
-    ?LOG_INFO("Reason=~0p", [Reason1]),
-
 
     % Do a good create
-    Bryan = (test_schema_user_db:new_default())#'test_schema.User'{first_name   = <<"Bryan">>,
-                                                                   last_name    = <<"Hughes">>,
-                                                                   email        = <<"hughesb@gmail.com">>,
-                                                                   user_type    = 'BIG_SHOT',
-                                                                   user_state   = 'living',
-                                                                   number_value = 100,
-                                                                   updated_on   = {{2021, 2, 23}, {10, 23, 23.5}},
-                                                                   my_array     = [1, 2, 3]},
+    {ok, Bryan} = test_schema_user_db:create(<<"Bryan">>, <<"Hughes">>, <<"hughesb@gmail.com">>, undefined,
+                                             [1, 2, 3], 'BIG_SHOT', 100, {{2021, 2, 23}, {10, 23, 23.5}}, {2021, 2, 23},
+                                             'living', undefined, undefined),
     ?LOG_INFO("Bryan=~p", [Bryan]),
-    {ok, Bryan1} = test_schema_user_db:create(Bryan),
-    ?LOG_INFO("Bryan1=~p", [Bryan1]),
-    ?assertEqual(<<"hughesb@gmail.com">>, Bryan1#'test_schema.User'.email),
-    ?assertEqual(<<"Bryan">>, Bryan1#'test_schema.User'.first_name),
-    ?assertEqual(<<"Hughes">>, Bryan1#'test_schema.User'.last_name),
-    ?assertEqual([1, 2, 3], Bryan1#'test_schema.User'.my_array),
-    ?assertEqual('BIG_SHOT', Bryan1#'test_schema.User'.user_type),
-    ?assertEqual(0, Bryan1#'test_schema.User'.version),
-    ?assertEqual({{2021, 2, 23}, {10, 23, 23.5}},
-                 test_schema_user_db:ts_decode(Bryan1#'test_schema.User'.updated_on)),
+    ?assertEqual(<<"hughesb@gmail.com">>, Bryan#'test_schema.User'.email),
+    ?assertEqual(<<"Bryan">>, Bryan#'test_schema.User'.first_name),
+    ?assertEqual(<<"Hughes">>, Bryan#'test_schema.User'.last_name),
+    ?assertEqual([1, 2, 3], Bryan#'test_schema.User'.my_array),
+    ?assertEqual('BIG_SHOT', Bryan#'test_schema.User'.user_type),
+    ?assertEqual('living', Bryan#'test_schema.User'.user_state),
+    ?assertEqual(0, Bryan#'test_schema.User'.version),
+    ?assertEqual({{2021, 2, 23}, {10, 23, 23.5}}, Bryan#'test_schema.User'.updated_on),
+    ?assertEqual({2021, 2, 23}, Bryan#'test_schema.User'.due_date),
 
-    ?LOG_INFO("created_on=~p", [Bryan1#'test_schema.User'.created_on]),
+    ?LOG_INFO("created_on=~p", [Bryan#'test_schema.User'.created_on]),
 
     % The code was generated with {use_defaults, true}, while non-foreign keys are set to a default or empty value
     % because of the proto3 code generation, foreign key columns are still null
-    ?assertEqual(undefined, Bryan1#'test_schema.User'.aka_id),
+    ?assertEqual(undefined, Bryan#'test_schema.User'.aka_id),
 
-    BryanId = Bryan1#'test_schema.User'.user_id,
+    BryanId = Bryan#'test_schema.User'.user_id,
     ?assert(BryanId > 0),
 
-    Tom1 = (test_schema_user_db:new_default())#'test_schema.User'{first_name   = <<"Tom">>,
-                                                                  email        = <<"tombagby@gmail.com">>,
-                                                                  user_type    = '_123FUN',
-                                                                  user_state   = 'living',
-                                                                  number_value = 100,
-                                                                  my_array     = [100, 200, 300]},
-    ?LOG_INFO("Creating user=~0p", [Tom1]),
-    {ok, Tom2} = test_schema_user_db:create(Tom1),
+    {ok, Tom} = test_schema_user_db:create(<<"Tom">>, undefined, <<"tombagby@gmail.com">>, undefined, [100, 200, 300],
+                                           '_123FUN', 100, undefined, {2021, 2, 23}, 'living', ?LON_0, ?LAT_0),
 
-    ?LOG_INFO("Tom2=~0p", [Tom2]),
-    ?assertEqual(<<"tombagby@gmail.com">>, Tom2#'test_schema.User'.email),
-    ?assertEqual(<<"Tom">>, Tom2#'test_schema.User'.first_name),
-    ?assertEqual(undefined, Tom2#'test_schema.User'.last_name),
-    ?assertEqual('_123FUN', Tom2#'test_schema.User'.user_type),
-    ?assertEqual('living', Tom2#'test_schema.User'.user_state),
+    ?LOG_INFO("Tom=~p", [Tom]),
+    ?assertEqual(<<"tombagby@gmail.com">>, Tom#'test_schema.User'.email),
+    ?assertEqual(<<"Tom">>, Tom#'test_schema.User'.first_name),
+    ?assertEqual(undefined, Tom#'test_schema.User'.last_name),
+    ?assertEqual('_123FUN', Tom#'test_schema.User'.user_type),
+    ?assertEqual('living', Tom#'test_schema.User'.user_state),
 
-    TomId = Tom2#'test_schema.User'.user_id,
+    TomId = Tom#'test_schema.User'.user_id,
     ?assert(TomId > BryanId),
 
     ?LOG_INFO("Reading Bryan back=~p", [BryanId]),
@@ -360,7 +300,7 @@ crudl_proto_records_test() ->
     {ok, Bryan4a} = test_schema_user_db:update(Bryan4),
     ?assertEqual(1, Bryan4a#'test_schema.User'.version),
 
-    {ok, Bryan5} = test_schema_user_db:read(Bryan1),
+    {ok, Bryan5} = test_schema_user_db:read(Bryan),
     ?LOG_INFO("Bryan5=~p", [Bryan5]),
 
     ?assertEqual(<<"foo@gmail.com">>, Bryan5#'test_schema.User'.email),
@@ -441,14 +381,36 @@ crudl_proto_records_test() ->
     % Try to update it again, should fail by returning no results because the version has changed
     notfound = test_schema_user_db:update(Bryan8),
 
-    ?LOG_INFO("Encoding. Bryan7=~p", [Bryan7]),
-    %% Do some encoding/decoding
-    Encoded = user_pb:encode_msg(Bryan7, 'test_schema.User'),
+    ?LOG_INFO("Encoding. Bryan9=~p", [Bryan9]),
+
+    % While proto_crudl is all about mapping protobuffers to relational tables in Erlang, how timestamps are handled
+    % are disjointed. Erlang handles dates, time, and datetime as
+    % datetime() = {date(), time()}
+    % date() = {year(), month(), day()}
+    % year() = integer() >= 0
+    % while protobuffers are treated as timestamps as {seconds, nanoseconds}. Call the helper functions to_proto/1 and
+    % from_proto/1 to convert datetime to timestamps.
+
+    ?assertEqual({{2021, 2, 23}, {10, 23, 23.5}}, Bryan9#'test_schema.User'.updated_on),
+    ?assertEqual({2021, 2, 23}, Bryan9#'test_schema.User'.due_date),
+
+    ToProto = test_schema_user_db:to_proto(Bryan9),
+    ?LOG_INFO("ToProto=~0p", [ToProto]),
+
+    ?assertEqual({'google.protobuf.Timestamp',1614075803,500000}, ToProto#'test_schema.User'.updated_on),
+    ?assertEqual({'google.protobuf.Timestamp',1614038400,0}, ToProto#'test_schema.User'.due_date),
+
+    Encoded = user_pb:encode_msg(ToProto, 'test_schema.User'),
     ?assert(size(Encoded) > 1),
     Decoded = user_pb:decode_msg(Encoded, 'test_schema.User'),
     ?LOG_INFO("Decoded=~0p", [Decoded]),
+    FromProto = test_schema_user_db:from_proto(Decoded),
+    ?LOG_INFO("FromProto=~0p", [FromProto]),
 
-    ?assertEqual(Bryan7, Decoded),
+    ?assertEqual({{2021, 2, 23}, {10, 23, 23.5}}, FromProto#'test_schema.User'.updated_on),
+    ?assertEqual({2021, 2, 23}, FromProto#'test_schema.User'.due_date),
+
+    ?assertEqual(Bryan9, FromProto),
 
     {ok, 1, []} = test_schema_user_db:delete_user_by_email(<<"foo@gmail.com">>),
     notfound = test_schema_user_db:read(#'test_schema.User'{user_id = BryanId}),
@@ -467,35 +429,19 @@ custom_query_record_test() ->
         {error, Reason} ->
             erlang:error(Reason)
     end,
-    Bryan = (test_schema_user_db:new_default())#'test_schema.User'{first_name   = <<"Bryan">>,
-                                                                   last_name = <<"Hughes">>,
-                                                                   email        = <<"hughesb@gmail.com">>,
-                                                                   user_type = 'BIG_SHOT',
-                                                                   number_value = 100,
-                                                                   updated_on  = {{2021, 2, 23}, {10, 23, 23.5}},
-                                                                   my_array     = [1, 2, 3],
-                                                                   lat = ?LAT_0,
-                                                                   lon = ?LON_0},
+    {ok, Bryan} = test_schema_user_db:create(<<"Bryan">>, <<"Hughes">>, <<"hughesb@gmail.com">>, undefined,
+                                             [1, 2, 3], 'BIG_SHOT', 100, {{2021, 2, 23}, {10, 23, 23.5}}, {2021, 2, 23},
+                                             'living', ?LON_0, ?LAT_0),
     ?LOG_INFO("Bryan=~p", [Bryan]),
-    {ok, Bryan1} = test_schema_user_db:create(Bryan),
-    ?LOG_INFO("Bryan1=~p", [Bryan1]),
-    ?assertEqual(?LAT_0, Bryan1#'test_schema.User'.lat),
-    ?assertEqual(?LON_0, Bryan1#'test_schema.User'.lon),
+    ?assertEqual(?LAT_0, Bryan#'test_schema.User'.lat),
+    ?assertEqual(?LON_0, Bryan#'test_schema.User'.lon),
 
-    Tom = (test_schema_user_db:new_default())#'test_schema.User'{first_name   = <<"Tom">>,
-                                                                 email = <<"tombagby@gmail.com">>,
-                                                                 user_type    = '_123FUN',
-                                                                 number_value = 100,
-                                                                 updated_on = {{2021, 2, 23}, {0, 0, 0}},
-                                                                 my_array     = [100, 200, 300],
-                                                                 lat = ?LAT_1,
-                                                                 lon = ?LON_1},
-    ?LOG_INFO("Creating user=~p", [Tom]),
-    {ok, Tom1} = test_schema_user_db:create(Tom),
+    {ok, Tom} = test_schema_user_db:create(<<"Tom">>, undefined, <<"tombagby@gmail.com">>, undefined, [100, 200, 300],
+                                           '_123FUN', 100, undefined, undefined, undefined, ?LON_1, ?LAT_1),
 
-    ?LOG_INFO("Tom1=~p", [Tom1]),
-    ?assertEqual(?LAT_1, Tom1#'test_schema.User'.lat),
-    ?assertEqual(?LON_1, Tom1#'test_schema.User'.lon),
+    ?LOG_INFO("Tom=~p", [Tom]),
+    ?assertEqual(?LAT_1, Tom#'test_schema.User'.lat),
+    ?assertEqual(?LON_1, Tom#'test_schema.User'.lon),
 
     Result0 = test_schema_user_db:find_nearest(?LON_0, ?LAT_0, 10),
     ?LOG_INFO("Result0=~p", [Result0]),
@@ -504,5 +450,48 @@ custom_query_record_test() ->
     ?assertEqual(?LAT_0, Row#'test_schema.FindNearest'.lat),
     ?assertEqual(?LON_0, Row#'test_schema.FindNearest'.lon),
     ?assertEqual(0, Row#'test_schema.FindNearest'.version).
+
+update_fkey_record_test() ->
+    ?LOG_INFO("====================== update_fkey_record_test() START ======================"),
+    ?LOG_INFO("Deleting from test_schema.user"),
+
+    Query = "DELETE FROM test_schema.user",
+    case pgo:query(Query, []) of
+        #{command := delete} ->
+            ok;
+        {error, Reason} ->
+            erlang:error(Reason)
+    end,
+    {ok, Bryan} = test_schema_user_db:create(<<"Bryan">>, <<"Hughes">>, <<"hughesb@gmail.com">>, undefined,
+                                             [1, 2, 3], 'BIG_SHOT', 100, {{2021, 2, 23}, {10, 23, 23.5}}, {2021, 2, 23},
+                                             'living', ?LON_0, ?LAT_0),
+    ?LOG_INFO("Bryan=~p", [Bryan]),
+    ?assertEqual(?LAT_0, Bryan#'test_schema.User'.lat),
+    ?assertEqual(?LON_0, Bryan#'test_schema.User'.lon),
+
+    {ok, Tom} = test_schema_user_db:create(<<"Tom">>, undefined, <<"tombagby@gmail.com">>, undefined, [100, 200, 300],
+                                           '_123FUN', 100, undefined, undefined, undefined, ?LON_1, ?LAT_1),
+
+    ?LOG_INFO("Tom (before update)=~p", [Tom]),
+
+    % Now Update Tom and try to update the aka_id directly, this should not work
+    {ok, Tom1} = test_schema_user_db:update(Tom#'test_schema.User'{aka_id = 100000, user_type = 'BUSY_GUY'}),
+    ?LOG_INFO("Tom1 (after update #1)=~p", [Tom1]),
+
+    ?assertNotEqual(Bryan#'test_schema.User'.user_id, Tom1#'test_schema.User'.aka_id),
+    ?assertEqual('BUSY_GUY', Tom1#'test_schema.User'.user_type),
+
+    % Now do the update on the foreign key
+
+    {ok, Tom2} = test_schema_user_db:update_fk_user_user(Tom#'test_schema.User'{aka_id    = Bryan#'test_schema.User'.user_id,
+                                                                                user_type = '_123FUN'}),
+    ?LOG_INFO("Tom2 (after update #2)=~p", [Tom2]),
+
+    ?assertEqual(Bryan#'test_schema.User'.user_id, Tom2#'test_schema.User'.aka_id),
+
+    % Only the foreign key should have been updated
+    ?assertEqual('BUSY_GUY', Tom2#'test_schema.User'.user_type),
+
+    ok.
 
 -endif.

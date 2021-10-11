@@ -68,7 +68,8 @@
                          ordinal_position = 0 :: non_neg_integer()}).
 
 %% @doc Describes the foreign table relationship
--record(foreign_relation, {foreign_schema :: binary() | undefined,
+-record(foreign_relation, {constraint_name :: binary() | undefined,
+                           foreign_schema :: binary() | undefined,
                            foreign_table :: binary() | undefined,
                            foreign_columns = [] :: [#foreign_column{}],
                            relation_type :: relation_type() | undefined}).
@@ -83,6 +84,17 @@
 %%      bind variables data types as parsed from the query
 -record(custom_query, {name :: string(), query :: string(), result_set = [#bind_var{}] :: [string()]}).
 
+%% @doc The query with bind parameters and the bindings
+-record(query, {name :: string() | undefined,
+                fun_name :: string(),
+                fun_args :: string(),
+                in_params :: string() | undefined,
+                bind_params :: string() | undefined,
+                query :: string(),
+                record :: string(),
+                default_record :: string | undefined,
+                map :: string()}).
+
 -record(table, {name :: binary() | undefined,
                 schema :: binary() | undefined,
                 columns = orddict:new() :: orddict:orddict(),   % Keyed by column_name
@@ -90,10 +102,11 @@
                 proto_extension :: string() | undefined,        % Extensions option when generating protobuffers
                 indexes = [] :: list(),                         % Keyed by index_name
                 relations = [] :: [#foreign_relation{}],
-                mappings = orddict:new() :: orddict:orddict(),  % Keyed by query_name
+                mappings = orddict:new() :: orddict:orddict(),  % Custom query mappings keyed by query_name
                 last_ordinal = 0 :: non_neg_integer(),
                 statements = dict:new() :: dict:dict(),         % Keyed by clause_type
                 has_valid_values = false :: boolean(),
+                has_dates = false :: boolean(),
                 has_timestamps = false :: boolean(),
                 version_column = <<>> :: binary(),
                 sequence :: binary() | undefined,
@@ -101,7 +114,8 @@
                 insert_list = [] :: [binary()],
                 update_list = [] :: [binary()],
                 pkey_list = [] :: [binary()],
-                default_list = [] :: [binary()]}).
+                default_list = [] :: [binary()],
+                query_dict = orddict:new() :: orddict:orddict()}).
 
 -record(database, {tables = dict:new() :: dict:dict()}).          % If there are multiple schema's then code will be
 % generated with the module names prepended with the

@@ -13,9 +13,9 @@
 
 %% API
 -export([read_database/2, is_int64/1, is_int32/1, is_sql_float/1, read_columns/3, read_table/4,
-         sql_to_proto_datatype/1, count_params/1, limit_fun/1, read_or_create_fun/1, create_fun/2,
+         sql_to_proto_datatype/1, count_params/1, limit_fun/1, create_fun/2,
          default_value/1, read_fun/2, update_fun/2, delete_fun/2, mappings_fun/2, list_lookup_fun/2,
-         sql_to_erlang_datatype/1, create_defaults_record_fun/4, is_timestamp/1, random_value/1]).
+         update_fkeys_fun/3, sql_to_erlang_datatype/1, is_timestamp/1, random_value/1]).
 
 -define(READ_TABLES, "SELECT
         t.table_schema,
@@ -87,6 +87,7 @@
         i.relname").
 
 -define(READ_FOREIGN_RELATIONSHIPS, "SELECT DISTINCT
+        rc.constraint_name,
         f_kcu.table_schema AS foreign_schema,
         f_kcu.table_name AS foreign_table,
         f_kcu.column_name AS foreign_column,
@@ -157,7 +158,8 @@ read_schemas(C, Generator, [Schema | Rest], TablesDict) ->
     Options = proplists:get_value(options, Generator, []),
     VersionColumn = proto_crudl_utils:to_binary(proplists:get_value(version_column, Options, <<>>)),
     logger:info("Generator=~0p, Options=~0p, VersionCollumn=~p", [Generator, Options, VersionColumn]),
-    Excluded1 = [case string:split(FQN, ".") of Parts when length(Parts) == 1 -> FQN; Parts -> lists:nth(2, Parts) end || FQN <- Excluded],
+    Excluded1 = [               case string:split(FQN, ".") of Parts when length(Parts) == 1 -> FQN; Parts ->
+        lists:nth(2, Parts) end || FQN <- Excluded],
     ExcludedTables1 = ["'" ++ Table ++ "'" || Table <- case Excluded1 of [] -> ["_"]; _ -> Excluded1 end],
     ExcludedTables2 = lists:flatten(lists:join(",", ExcludedTables1)),
 
@@ -175,9 +177,9 @@ read_schemas(C, Generator, [Schema | Rest], TablesDict) ->
                     read_schemas(C, Generator, Rest, TablesDict1)
             end;
         {error, Reason} ->
-            io:format(
+            io:format                                                                 (
                 "    ERROR: Failed to get tables from schema ~p. Reason=~p, Stmt=~p~n",
-                [Schema, Reason, FixedQuery]),
+                [Schema, Reason, FixedQuery]                                          ),
             {error, Reason}
     end.
 
@@ -243,13 +245,14 @@ process_columns(Table, _VersionColumn, []) ->
 process_columns(Table, VersionColumn, [{CN, OP, DT, UN, CD, IN, IP, IS} | Rest]) ->
     IN0 = case IN of <<"YES">> -> true; <<"NO">> -> false end,
     IsVersion = VersionColumn == CN,
-    Col = #column{table_name  = Table#table.name, table_schema = Table#table.schema, name = CN, ordinal_position = OP,
-                  data_type   = DT, udt_name = UN, default = CD, is_nullable = IN0, is_pkey = IP,
+    Col = #column{table_name = Table#table.name, table_schema = Table#table.schema, name = CN, ordinal_position = OP,
+                  data_type  = DT, udt_name = UN, default = CD, is_nullable = IN0, is_pkey = IP,
                   is_version = IsVersion, is_sequence = IS},
     ColDict = orddict:store(CN, Col, Table#table.columns),
     PkList = case IP of true -> [CN | Table#table.pkey_list]; _ -> Table#table.pkey_list end,
     Sequence = case IS of true -> CN; _ -> Table#table.sequence end,
     HasTimestamps = Table#table.has_timestamps or is_timestamp(UN),
+    HasDates = Table#table.has_dates or is_date(UN),
     io:format("    Column: ~p  ~p  ~p ... (default: ~p, is_pkey: ~p, is_seq: ~p, is_nullable: ~p, is_version: ~p, has_timestamps: ~p)~n",
               [CN, DT, UN, CD, IP, IS, IN0, IsVersion, HasTimestamps]),
 
@@ -267,6 +270,7 @@ process_columns(Table, VersionColumn, [{CN, OP, DT, UN, CD, IN, IP, IS} | Rest])
     UpdateList = case IP of false -> [CN | Table#table.update_list]; _ -> Table#table.update_list end,
     process_columns(Table#table{columns        = ColDict,
                                 has_timestamps = HasTimestamps,
+                                has_dates      = HasDates,
                                 version_column = VersionColumn,
                                 select_list    = [CN | Table#table.select_list],
                                 update_list    = UpdateList,
@@ -287,9 +291,9 @@ read_indexes(C, T0 = #table{name = N, schema = S}) ->
                     {ok, T0#table{indexes = Indexes}}
             end;
         {error, Reason} ->
-            io:format(
+            io:format                                                                 (
                 "    ERROR: Failed to get index for table ~p.~p. Reason=~p, Stmt=~p~n",
-                [S, N, Reason, ?READ_INDEXES]),
+                [S, N, Reason, ?READ_INDEXES]                                         ),
             {error, Reason}
     end.
 
@@ -297,7 +301,7 @@ read_indexes(C, T0 = #table{name = N, schema = S}) ->
                       IndexList :: list()) -> {ok, [#index{}]} | {error, Reason :: any()}.
 process_indexes(Idx, _S, _T, [], IndexList) when is_record(Idx, index) ->
     io:format("    Index: ~p  ~0p (~p, is_list = ~p, is_lookup = ~p)~n",
-        [Idx#index.name, Idx#index.columns, Idx#index.type, Idx#index.is_list, Idx#index.is_lookup]),
+              [Idx#index.name, Idx#index.columns, Idx#index.type, Idx#index.is_list, Idx#index.is_lookup]),
     {ok, [Idx | IndexList]};
 process_indexes(Idx = #index{name = IN, columns = Cols}, S, T, [{IN, CN, _, _, _} | Rest], IdxDict) when is_record(Idx, index) ->
     % As long as the name of the result set equals the index, then add to it...
@@ -314,7 +318,7 @@ process_indexes(Idx, S, T, [{IN, CN, IU, IP, IC} | Rest], IndexList) ->
     IsList = case IN of <<$l, $i, $s, $t, $_, _Rest0/binary>> -> true; _ -> false end,
     IsLookup = case IN of <<$l, $o, $o, $k, $u, $p, $_, _Rest1/binary>> -> true; _ -> false end,
     NewIdx = #index{table_name = T, table_schema = S, name = IN, type = Type, comment = IC, is_list = IsList,
-                    is_lookup  = IsLookup, columns    = [CN]},
+                    is_lookup  = IsLookup, columns = [CN]},
     case Idx of
         undefined ->
             process_indexes(NewIdx, S, T, Rest, IndexList);
@@ -333,12 +337,16 @@ read_relationships(C, T0 = #table{name = N, schema = S}) ->
         {ok, _Fields, Rows} ->
             case process_relationships(undefined, S, N, Rows, []) of
                 {ok, Relations} ->
-                    {ok, T0#table{relations = Relations}}
+                    % Now, remove the foreign key from the update list
+                    exclude_from_update(T0#table{relations = Relations}, Relations);
+                {error, Reason} ->
+                    io:format("    ERROR: Failed to get foreign relationships for table ~p.~p. Reason=~p, Stmt=~p~n",
+                              [S, N, Reason, ?READ_FOREIGN_RELATIONSHIPS]),
+                    {error, Reason}
             end;
         {error, Reason} ->
-            io:format(
-                "    ERROR: Failed to get foreign relationships for table ~p.~p. Reason=~p, Stmt=~p~n",
-                [S, N, Reason, ?READ_FOREIGN_RELATIONSHIPS]),
+            io:format("    ERROR: Failed to get foreign relationships for table ~p.~p. Reason=~p, Stmt=~p~n",
+                      [S, N, Reason, ?READ_FOREIGN_RELATIONSHIPS]),
             {error, Reason}
     end.
 
@@ -350,22 +358,34 @@ process_relationships(Rel, _S, _T, [], Relations) ->
                                              Rel#foreign_relation.foreign_columns]),
     {ok, [Rel | Relations]};
 process_relationships(Rel = #foreign_relation{foreign_schema = FS, foreign_table = FT, foreign_columns = FCols}, S, T,
-    [{FS, FT, FC, OP, LC} | Rest], Relations) when is_record(Rel, foreign_relation) ->
+                      [{_CN, FS, FT, FC, LC, OP} | Rest], Relations) when is_record(Rel, foreign_relation) ->
     % If the foreign table and schema are the same, then add the column mapping
     FCol = #foreign_column{foreign_name = FC, local_name = LC, ordinal_position = OP},
     process_relationships(Rel#foreign_relation{foreign_columns = [FCol | FCols]}, S, T, Rest, Relations);
-process_relationships(Rel, S, T, [{FS, FT, FC, LC, OP} | Rest], Relations) ->
+process_relationships(Rel, S, T, [{CN, FS, FT, FC, LC, OP} | Rest], Relations) ->
     FCol = #foreign_column{foreign_name = FC, local_name = LC, ordinal_position = OP},
-    NewRel = #foreign_relation{foreign_schema = FS, foreign_table = FT, foreign_columns = [FCol]},
+    NewRel = #foreign_relation{constraint_name = CN, foreign_schema = FS, foreign_table = FT, foreign_columns = [FCol]},
     case Rel of
         undefined ->
             process_relationships(NewRel, S, T, Rest, Relations);
         _ ->
-            io:format("    Relation: ~p.~p  ~0p~n", [Rel#foreign_relation.foreign_schema,
-                                                     Rel#foreign_relation.foreign_table,
-                                                     Rel#foreign_relation.foreign_columns]),
+            io:format("    Relation ~p: ~p.~p  ~0p~n", [Rel#foreign_relation.constraint_name,
+                                                        Rel#foreign_relation.foreign_schema,
+                                                        Rel#foreign_relation.foreign_table,
+                                                        Rel#foreign_relation.foreign_columns]),
             process_relationships(NewRel, S, T, Rest, [Rel | Relations])
     end.
+
+exclude_from_update(Table, []) ->
+    {ok, Table};
+exclude_from_update(Table0, [#foreign_relation{foreign_columns = FC} | Rest]) ->
+    Table1 = exclude_fkey_columns(Table0, FC),
+    exclude_from_update(Table1, Rest).
+
+exclude_fkey_columns(Table, []) ->
+    Table;
+exclude_fkey_columns(Table = #table{update_list = UL}, [#foreign_column{local_name = ColumnName} | Rest]) ->
+    exclude_fkey_columns(Table#table{update_list = lists:delete(ColumnName, UL)}, Rest).
 
 -spec read_constraints(pid(), #table{}) -> {ok, #table{}} | {error, Reason :: any()}.
 read_constraints(C, T0 = #table{name = N, schema = S}) ->
@@ -376,9 +396,9 @@ read_constraints(C, T0 = #table{name = N, schema = S}) ->
         {ok, _Fields, Rows} ->
             process_constraints(S, N, Rows, T0);
         {error, Reason} ->
-            io:format(
+            io:format                                                                             (
                 "    ERROR: Failed to get check cosntraints for table ~p.~p. Reason=~p, Stmt=~p~n",
-                [S, N, Reason, ?READ_CHECK_CONSTRAINTS]),
+                [S, N, Reason, ?READ_CHECK_CONSTRAINTS]                                           ),
             {error, Reason}
     end.
 
@@ -524,7 +544,8 @@ sql_to_erlang_datatype({regtype, <<0, 0, 3, 247>>}) ->
     % character varying[]
     "string";
 sql_to_erlang_datatype(<<"date">>) ->
-    "integer";
+    % date is mapped to a timestamp
+    "binary";
 sql_to_erlang_datatype(<<"double precision">>) ->
     "float";
 sql_to_erlang_datatype(<<"float8">>) ->
@@ -639,7 +660,8 @@ sql_to_proto_datatype({regtype, <<0, 0, 3, 247>>}) ->
     % character varying[]
     "string";
 sql_to_proto_datatype(<<"date">>) ->
-    "int64";
+    % timestamp
+    "google.protobuf.Timestamp";
 sql_to_proto_datatype(<<"double precision">>) ->
     "double";
 sql_to_proto_datatype(<<"float8">>) ->
@@ -717,18 +739,16 @@ is_timestamp(<<116, 105, 109, 101, 115, 116, 97, 109, 112, _Rest/binary>>) ->
 is_timestamp(_) ->
     false.
 
+is_date(<<"date">>) ->
+    true;
+is_date(_) ->
+    false.
+
 
 -spec count_params(string()) -> non_neg_integer().
 count_params(Query) ->
-    {ok, Tokens, _} = erl_scan:string(Query),
-    count_params(Tokens, sets:new()).
-
-count_params([], Set) ->
-    sets:size(Set);
-count_params([{char, 1, Counter} | Rest], Set) ->
-    count_params(Rest, sets:add_element(Counter, Set));
-count_params([_E | Rest], Set) ->
-    count_params(Rest, Set).
+    {ok, _Query, Params, _InParams, _Record, _Map} = proto_crudl_parse:parse_query("test_schema.User", Query, orddict:new()),
+    length(Params).
 
 -spec random_value(atom()) -> any().
 random_value(string) ->
@@ -784,7 +804,7 @@ default_value({regtype, <<0, 0, 3, 247>>}) ->
     % character varying[]
     "<<\"\">>";
 default_value(<<"date">>) ->
-    "0";
+    "{1970, 1, 1}";
 default_value(<<"double precision">>) ->
     "0.0";
 default_value(<<"float8">>) ->
@@ -852,12 +872,14 @@ default_value(Unknown) ->
     "<<>>".
 
 -spec create_fun(string() | undefined, #table{}) -> string().
-create_fun(undefined, Table) ->
-    {Map, DMap} = proto_crudl_code:build_insert_map(Table),
-    {Param, DParam} = proto_crudl_code:build_insert_params(Table),
-    "create(M = " ++ Map ++ ") when is_map(M) ->\n" ++
-    "    Params = " ++ Param ++ ",\n"
-    "    case pgo:query(?INSERT, Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
+create_fun(undefined, Table = #table{query_dict = QD}) ->
+    Query = orddict:fetch("insert", QD),
+    Name = Query#query.name,
+    InParams = lists:join(", ", Query#query.in_params),
+    BindParams = lists:join(", ", Query#query.bind_params),
+    "create(" ++ InParams ++ ") ->\n" ++
+    "    Params = [" ++ BindParams ++ "],\n"
+    "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := insert, num_rows := 0} ->\n"
     "            {error, failed_to_insert};\n"
     "        #{command := insert, num_rows := 1, rows := [Row]} ->\n"
@@ -865,18 +887,18 @@ create_fun(undefined, Table) ->
     "        {error, {pgsql_error, #{code := <<\"23505\">>}}} ->\n"
     "            {error, exists};\n"
     "        {error, Reason} ->\n"
-    "            logger:error(\"Failed to insert. Reason=~p, Query=~p, Params=~p\", [Reason, ?INSERT, Params]),\n"
+    "            logger:error(\"Failed to insert. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
     "            {error, Reason}\n"
-    "    end;\n" ++
-    create_defaults_map_fun(Table, DMap, DParam) ++
-    "create(_M) ->\n"
-    "    {error, invalid_map}.\n\n";
-create_fun(RecordName, Table = #table{default_list = DL}) ->
-    {Record, DRecord} = proto_crudl_code:build_insert_record(RecordName, Table),
-    {Param, DParam} = proto_crudl_code:build_insert_params(Table),
-    Str = "create(R = " ++ Record ++ ") when is_record(R, " ++ RecordName ++ ") ->\n" ++
-    "    Params = " ++ Param ++ ",\n"
-    "    case pgo:query(?INSERT, Params, #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
+    "    end.\n\n" ++
+    create_defaults_map_fun(Table);
+create_fun(RecordName, Table = #table{default_list = DL, query_dict = QD}) ->
+    Query = orddict:fetch("insert", QD),
+    Name = Query#query.name,
+    InParams = lists:join(", ", Query#query.in_params),
+    BindParams = lists:join(", ", Query#query.bind_params),
+    "create(" ++ InParams ++ ") ->\n" ++
+    "    Params = [" ++ BindParams ++ "],\n"
+    "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := insert, num_rows := 0} ->\n"
     "            {error, failed_to_insert};\n"
     "        #{command := insert, num_rows := 1, rows := [Row]} ->\n"
@@ -884,22 +906,24 @@ create_fun(RecordName, Table = #table{default_list = DL}) ->
     "        {error, {pgsql_error, #{code := <<\"23505\">>}}} ->\n"
     "            {error, exists};\n"
     "        {error, Reason} ->\n"
-    "            logger:error(\"Failed to insert. Reason=~p, Query=~p, Params=~p\", [Reason, ?INSERT, Params]),\n"
+    "            logger:error(\"Failed to insert. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
     "            {error, Reason}\n"
-    "    end;\n" ++
-    "create(_M) ->\n"
-    "    {error, invalid_record}.\n\n",
+    "    end.\n\n" ++
     case length(DL) > 0 of
-        true -> create_defaults_record_fun(Table, RecordName, DRecord, DParam) ++ Str;
-        _ -> Str
+        true -> create_defaults_record_fun(Table, RecordName);
+        _ -> ""
     end.
 
-create_defaults_map_fun(#table{default_list = DL}, _DMap, _DParam) when length(DL) == 0 ->
+create_defaults_map_fun(#table{default_list = DL}) when length(DL) == 0 ->
     "";
-create_defaults_map_fun(_Table, DMap, DParam) ->
-    "create(M = " ++ DMap ++ ") when is_map(M) ->\n" ++
-    "    Params = " ++ DParam ++ ",\n"
-    "    case pgo:query(?INSERT_DEFAULTS, Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
+create_defaults_map_fun(#table{query_dict = QD}) ->
+    Query = orddict:fetch("insert_defaults", QD),
+    Name = Query#query.name,
+    InParams = lists:join(", ", Query#query.in_params),
+    BindParams = lists:join(", ", Query#query.bind_params),
+    "create(" ++ InParams ++ ") ->\n" ++
+    "    Params = [" ++ BindParams ++ "],\n"
+    "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := insert, num_rows := 0} ->\n"
     "            {error, failed_to_insert};\n"
     "        #{command := insert, num_rows := 1, rows := [Row]} ->\n"
@@ -907,16 +931,20 @@ create_defaults_map_fun(_Table, DMap, DParam) ->
     "        {error, {pgsql_error, #{code := <<\"23505\">>}}} ->\n"
     "            {error, exists};\n"
     "        {error, Reason} ->\n"
-    "            logger:error(\"Failed to insert with defaults. Reason=~p, Query=~p, Params=~p\", [Reason, ?INSERT_DEFAULTS, Params]),\n"
+    "            logger:error(\"Failed to insert with defaults. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
     "            {error, Reason}\n"
-    "    end;\n".
+    "    end.\n\n".
 
-create_defaults_record_fun(#table{default_list = DL}, _RecordName, _DRecord, _DParam) when length(DL) == 0 ->
+create_defaults_record_fun(#table{default_list = DL}, _RecordName) when length(DL) == 0 ->
     "";
-create_defaults_record_fun(_Table, RecordName, DRecord, DParam) ->
-    "create(R = " ++ DRecord ++ ") when is_record(R, " ++ RecordName ++ ") ->\n" ++
-    "    Params = " ++ DParam ++ ",\n"
-    "    case pgo:query(?INSERT_DEFAULTS, Params, #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
+create_defaults_record_fun(#table{query_dict = QD}, RecordName) ->
+    Query = orddict:fetch("insert_defaults", QD),
+    Name = Query#query.name,
+    Params = lists:join(", ", Query#query.in_params),
+    BindParams = lists:join(", ", Query#query.bind_params),
+    "create(" ++ Params ++ ") ->\n" ++
+    "    Params = [" ++ BindParams ++ "],\n"
+    "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := insert, num_rows := 0} ->\n"
     "            {error, failed_to_insert};\n"
     "        #{command := insert, num_rows := 1, rows := [Row]} ->\n"
@@ -924,133 +952,151 @@ create_defaults_record_fun(_Table, RecordName, DRecord, DParam) ->
     "        {error, {pgsql_error, #{code := <<\"23505\">>}}} ->\n"
     "            {error, exists};\n"
     "        {error, Reason} ->\n"
-    "            logger:error(\"Failed to insert with defaults. Reason=~p, Query=~p, Params=~p\", [Reason, ?INSERT_DEFAULTS, Params]),\n"
+    "            logger:error(\"Failed to insert with defaults. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
     "            {error, Reason}\n"
-    "    end;\n".
-
--spec read_or_create_fun(string() | undefined) -> string().
-read_or_create_fun(undefined) ->
-    "read_or_create(M) when is_map(M) ->\n"
-    "    case read(M) of\n"
-    "        notfound ->\n"
-    "            create(M);\n"
-    "        {ok, Map} ->\n"
-    "            {ok, Map};\n"
-    "        {error, Reason} ->\n"
-    "            {error, Reason}\n"
-    "    end;\n"
-    "read_or_create(_M) ->\n"
-    "    {error, invalid_map}.\n\n";
-read_or_create_fun(RecordName) ->
-    "read_or_create(R) when is_record(R, " ++ RecordName ++ ") ->\n"
-    "    case read(R) of\n"
-    "        notfound ->\n"
-    "            create(R);\n"
-    "        {ok, Record} ->\n"
-    "            {ok, Record};\n"
-    "        {error, Reason} ->\n"
-    "            {error, Reason}\n"
-    "    end;\n"
-    "read_or_create(_R) ->\n"
-    "    {error, invalid_record}.\n\n".
+    "    end.\n\n".
 
 -spec read_fun(string() | undefined, #table{}) -> string().
-read_fun(undefined, Table) ->
-    Map = proto_crudl_code:build_select_map(Table),
-    Params = proto_crudl_code:build_select_params(Table),
+read_fun(undefined, #table{query_dict = QD}) ->
+    Query = orddict:fetch("select", QD),
+    Name = Query#query.name,
+    Map = Query#query.map,
+    Params = lists:join(", ", Query#query.bind_params),
     "read(M = " ++ Map ++ ") when is_map(M) ->\n"
-    "    Params = " ++ Params ++ ",\n"
-    "    case pgo:query(?SELECT, Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
+    "    Params = [" ++ Params ++ "],\n"
+    "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := select, num_rows := 0} ->\n"
     "            notfound;\n"
     "        #{command := select, num_rows := 1, rows := [Row]} ->\n"
     "            {ok, Row};\n"
     "        {error, Reason} ->\n"
-    "            logger:error(\"Failed to read. Reason=~p, Query=~p, Params=~p\", [Reason, ?SELECT, Params]),\n"
+    "            logger:error(\"Failed to read. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
     "            {error, Reason}\n"
-    "    end;\n"
-    "read(_M) ->\n"
-    "    {error, invalid_map}.\n\n";
-read_fun(RecordName, Table) ->
-    Record = proto_crudl_code:build_select_record(RecordName, Table),
-    Params = proto_crudl_code:build_select_params(Table),
+    "    end.\n\n";
+read_fun(RecordName, #table{query_dict = QD}) ->
+    Query = orddict:fetch("select", QD),
+    Name = Query#query.name,
+    Record = Query#query.record,
+    Params = lists:join(", ", Query#query.bind_params),
     "read(R = " ++ Record ++ ") when is_record(R, " ++ RecordName ++ ") ->\n"
-    "    Params = " ++ Params ++ ",\n"
-    "    case pgo:query(?SELECT, Params, #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
+    "    Params = [" ++ Params ++ "],\n"
+    "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := select, num_rows := 0} ->\n"
     "            notfound;\n"
     "        #{command := select, num_rows := 1, rows := [Row]} ->\n"
     "            {ok, Row};\n"
     "        {error, Reason} ->\n"
-    "            logger:error(\"Failed to read. Reason=~p, Query=~p, Params=~p\", [Reason, ?SELECT, Params]),\n"
+    "            logger:error(\"Failed to read. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
     "            {error, Reason}\n"
-    "    end;\n"
-    "read(_M) ->\n"
-    "    {error, invalid_record}.\n\n".
+    "    end.\n\n".
 
 -spec update_fun(string() | undefined, #table{}) -> string().
-update_fun(undefined, Table) ->
-    Map = proto_crudl_code:build_update_map(Table),
-    Params = proto_crudl_code:build_update_params(Table),
+update_fun(undefined, #table{query_dict = QD}) ->
+    Query = orddict:fetch("update", QD),
+    Name = Query#query.name,
+    Map = Query#query.map,
+    Params = lists:join(", ", Query#query.bind_params),
     "update(M = " ++ Map ++ ") when is_map(M) ->\n" ++
-    "    Params = " ++ Params ++ ",\n"
-    "    case pgo:query(?UPDATE, Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
+    "    Params = [" ++ Params ++ "],\n"
+    "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := update, num_rows := 0} ->\n"
     "            notfound;\n"
     "        #{command := update, num_rows := 1, rows := [Row]} ->\n"
     "            {ok, Row};\n"
     "        {error, Reason} ->\n"
-    "            logger:error(\"Failed to update. Reason=~p, Query=~p, Params=~p\", [Reason, ?UPDATE, Params]),\n"
+    "            logger:error(\"Failed to update. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
     "            {error, Reason}\n"
-    "    end;\n"
-    "update(_M) ->\n"
-    "    {error, invalid_map}.\n\n";
-update_fun(RecordName, Table) ->
-    Record = proto_crudl_code:build_update_record(RecordName, Table),
-    Params = proto_crudl_code:build_update_params(Table),
+    "    end.\n\n";
+update_fun(RecordName, #table{query_dict = QD}) ->
+    Query = orddict:fetch("update", QD),
+    Name = Query#query.name,
+    Record = Query#query.record,
+    Params = lists:join(", ", Query#query.bind_params),
     "update(R = " ++ Record ++ ") when is_record(R, " ++ RecordName ++ ") ->\n" ++
-    "    Params = " ++ Params ++ ",\n"
-    "    case pgo:query(?UPDATE, Params, #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
+    "    Params = [" ++ Params ++ "],\n"
+    "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := update, num_rows := 0} ->\n"
     "            notfound;\n"
     "        #{command := update, num_rows := 1, rows := [Row]} ->\n"
     "            {ok, Row};\n"
     "        {error, Reason} ->\n"
-    "            logger:error(\"Failed to update. Reason=~p, Query=~p, Params=~p\", [Reason, ?UPDATE, Params]),\n"
+    "            logger:error(\"Failed to update. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
     "            {error, Reason}\n"
     "    end;\n"
     "update(_M) ->\n"
+    "    {error, invalid_record}.\n\n".
+
+-spec update_fkeys_fun(string() | undefined, #foreign_relation{}, #table{}) -> string().
+update_fkeys_fun(undefined, #foreign_relation{constraint_name = CN}, #table{query_dict = QD}) ->
+    Query = orddict:fetch(CN, QD),
+    Name = Query#query.name,
+    Map = Query#query.map,
+    Params = lists:join(", ", Query#query.bind_params),
+    "update_" ++ string:to_lower(binary_to_list(CN)) ++ "(M = " ++ Map ++ ") when is_map(M) ->\n" ++
+    "    Params = [" ++ Params ++ "],\n"
+    "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
+    "        #{command := update, num_rows := 0} ->\n"
+    "            notfound;\n"
+    "        #{command := update, num_rows := 1, rows := [Row]} ->\n"
+    "            {ok, Row};\n"
+    "        {error, Reason} ->\n"
+    "            logger:error(\"Failed to update. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
+    "            {error, Reason}\n"
+    "    end;\n"
+    "update_" ++ binary_to_list(CN) ++ "(_M) ->\n"
+    "    {error, invalid_map}.\n\n";
+update_fkeys_fun(RecordName, #foreign_relation{constraint_name = CN}, #table{query_dict = QD}) ->
+    Query = orddict:fetch(CN, QD),
+    Name = Query#query.name,
+    Record = Query#query.record,
+    Params = lists:join(", ", Query#query.bind_params),
+    "update_" ++ string:to_lower(binary_to_list(CN)) ++ "(R = " ++ Record ++ ") when is_record(R, " ++ RecordName ++ ") ->\n" ++
+    "    Params = [" ++ Params ++ "],\n"
+    "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
+    "        #{command := update, num_rows := 0} ->\n"
+    "            notfound;\n"
+    "        #{command := update, num_rows := 1, rows := [Row]} ->\n"
+    "            {ok, Row};\n"
+    "        {error, Reason} ->\n"
+    "            logger:error(\"Failed to update. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
+    "            {error, Reason}\n"
+    "    end;\n"
+    "update_" ++ binary_to_list(CN) ++ "(_M) ->\n"
     "    {error, invalid_record}.\n\n".
 
 -spec delete_fun(string() | undefined, #table{}) -> string().
-delete_fun(undefined, Table) ->
-    Map = proto_crudl_code:build_delete_map(Table),
-    Params = proto_crudl_code:build_delete_params(Table),
+delete_fun(undefined, #table{query_dict = QD}) ->
+    Query = orddict:fetch("delete", QD),
+    Name = Query#query.name,
+    Map = Query#query.map,
+    Params = lists:join(", ", Query#query.bind_params),
     "delete(M = " ++ Map ++ ") when is_map(M) ->\n"
-    "    Params = " ++ Params ++ ",\n"
-    "    case pgo:query(?DELETE, Params) of\n"
+    "    Params = [" ++ Params ++ "],\n"
+    "    case pgo:query(?" ++ Name ++ ", Params) of\n"
     "        #{command := delete, num_rows := 0} ->\n"
     "            notfound;\n"
     "        #{command := delete, num_rows := 1} ->\n"
     "            ok;\n"
     "        {error, Reason} ->\n"
-    "            logger:error(\"Failed to delete. Reason=~p, Query=~p, Params=~p\", [Reason, ?DELETE, Params]),\n"
+    "            logger:error(\"Failed to delete. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
     "            {error, Reason}\n"
     "    end;\n"
     "delete(_M) ->\n"
     "    {error, invalid_map}.\n\n";
-delete_fun(RecordName, Table) ->
-    Record = proto_crudl_code:build_delete_record(RecordName, Table),
-    Params = proto_crudl_code:build_delete_params(Table),
+delete_fun(RecordName, #table{query_dict = QD}) ->
+    Query = orddict:fetch("delete", QD),
+    Name = Query#query.name,
+    Record = Query#query.record,
+    Params = lists:join(", ", Query#query.bind_params),
     "delete(R = " ++ Record ++ ") when is_record(R, " ++ RecordName ++ ") ->\n"
-    "    Params = " ++ Params ++ ",\n"
-    "    case pgo:query(?DELETE, Params) of\n"
+    "    Params = [" ++ Params ++ "],\n"
+    "    case pgo:query(?" ++ Name ++ ", Params) of\n"
     "        #{command := delete, num_rows := 0} ->\n"
     "            notfound;\n"
     "        #{command := delete, num_rows := 1} ->\n"
     "            ok;\n"
     "        {error, Reason} ->\n"
-    "            logger:error(\"Failed to delete. Reason=~p, Query=~p, Params=~p\", [Reason, ?DELETE, Params]),\n"
+    "            logger:error(\"Failed to delete. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
     "            {error, Reason}\n"
     "    end;\n"
     "delete(_M) ->\n"
@@ -1059,7 +1105,7 @@ delete_fun(RecordName, Table) ->
 -spec limit_fun(string() | undefined) -> string().
 limit_fun(undefined) ->
     "list(Limit, Offset) ->\n"
-    "    case pgo:query(?SELECT_WITH_LIMIT, [Limit, Offset], #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
+    "    case pgo:query(?SELECT_LIMIT, [Limit, Offset], #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := select, num_rows := NRows, rows := Rows} ->\n"
     "            {ok, NRows, Rows};\n"
     "        {error, Reason} ->\n"
@@ -1067,7 +1113,7 @@ limit_fun(undefined) ->
     "    end.\n\n";
 limit_fun(RecordName) ->
     "list(Limit, Offset) ->\n"
-    "    case pgo:query(?SELECT_WITH_LIMIT, [Limit, Offset], #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
+    "    case pgo:query(?SELECT_LIMIT, [Limit, Offset], #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := select, num_rows := NRows, rows := Rows} ->\n"
     "            {ok, NRows, Rows};\n"
     "        {error, Reason} ->\n"
@@ -1075,104 +1121,105 @@ limit_fun(RecordName) ->
     "    end.\n\n".
 
 -spec list_lookup_fun(string() | undefined, #table{}) -> string().
-list_lookup_fun(RecordName, #table{indexes = Indexes}) ->
-    list_lookup_fun(RecordName, Indexes, []).
+list_lookup_fun(RecordName, T = #table{indexes = Indexes}) ->
+    list_lookup_fun(RecordName, T, Indexes, []).
 
-list_lookup_fun(_RecordName, [], Acc) ->
+list_lookup_fun(_RecordName, _T, [], Acc) ->
     Acc;
-list_lookup_fun(undefined, [#index{is_list = true, columns = Columns, name = N} | Rest], Acc) ->
-    Map = proto_crudl_code:build_lookup_list_map(undefined, Columns),
-    Params = proto_crudl_code:build_list_params(Columns),
+list_lookup_fun(undefined, T = #table{query_dict = QD}, [#index{is_list = true, name = N} | Rest], Acc) ->
+    Query = orddict:fetch(N, QD),
+    Map = Query#query.map,
+    Params = lists:join(", ", Query#query.bind_params),
     Name = proto_crudl_utils:to_string(N),
     S = Name ++ "(M = " ++ Map ++ ", Limit, Offset) when is_map(M) ->\n"
-    "    Params = " ++ Params ++ ",\n"
+    "    Params = [" ++ Params ++ ", Limit, Offset],\n"
     "    case pgo:query(?" ++ string:to_upper(Name) ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := select, num_rows := NRows, rows := Rows} ->\n"
     "            {ok, NRows, Rows};\n"
     "        {error, Reason} ->\n"
     "            {error, Reason}\n"
     "    end.\n\n",
-    list_lookup_fun(undefined, Rest, [S | Acc]);
-list_lookup_fun(undefined, [#index{is_lookup = true, columns = Columns, name = N} | Rest], Acc) ->
-    Map = proto_crudl_code:build_lookup_list_map(undefined, Columns),
-    Params = proto_crudl_code:build_lookup_params(Columns),
+    list_lookup_fun(undefined, T, Rest, [S | Acc]);
+list_lookup_fun(undefined, T = #table{query_dict = QD}, [#index{is_lookup = true, name = N} | Rest], Acc) ->
+    Query = orddict:fetch(N, QD),
+    Map = Query#query.map,
+    Params = lists:join(", ", Query#query.bind_params),
     Name = proto_crudl_utils:to_string(N),
     S = Name ++ "(M = " ++ Map ++ ") when is_map(M) ->\n"
-    "    Params = " ++ Params ++ ",\n"
+    "    Params = [" ++ Params ++ "],\n"
     "    case pgo:query(?" ++ string:to_upper(Name) ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := select, num_rows := NRows, rows := Rows} ->\n"
     "            {ok, NRows, Rows};\n"
     "        {error, Reason} ->\n"
     "            {error, Reason}\n"
     "    end.\n\n",
-    list_lookup_fun(undefined, Rest, [S | Acc]);
-list_lookup_fun(RecordName, [#index{is_list = true, columns = Columns, name = N} | Rest], Acc) ->
-    Record = proto_crudl_code:build_lookup_list_map(RecordName, Columns),
-    Params = proto_crudl_code:build_list_params(Columns),
+    list_lookup_fun(undefined, T, Rest, [S | Acc]);
+list_lookup_fun(RecordName, T = #table{query_dict = QD}, [#index{is_list = true, name = N} | Rest], Acc) ->
+    Query = orddict:fetch(N, QD),
+    Record = Query#query.record,
+    Params = lists:join(", ", Query#query.bind_params),
     Name = proto_crudl_utils:to_string(N),
     S = Name ++ "(R = " ++ Record ++ ", Limit, Offset) when is_record(R, " ++ RecordName ++ ") ->\n"
-        "    Params = " ++ Params ++ ",\n"
+        "    Params = [" ++ Params ++ ", Limit, Offset],\n"
         "    case pgo:query(?" ++ string:to_upper(Name) ++ ", Params, #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
         "        #{command := select, num_rows := NRows, rows := Rows} ->\n"
         "            {ok, NRows, Rows};\n"
         "        {error, Reason} ->\n"
         "            {error, Reason}\n"
         "    end.\n\n",
-    list_lookup_fun(RecordName, Rest, [S | Acc]);
-list_lookup_fun(RecordName, [#index{is_lookup = true, columns = Columns, name = N} | Rest], Acc) ->
-    Record = proto_crudl_code:build_lookup_list_map(RecordName, Columns),
-    Params = proto_crudl_code:build_lookup_params(Columns),
+    list_lookup_fun(RecordName, T, Rest, [S | Acc]);
+list_lookup_fun(RecordName, T = #table{query_dict = QD}, [#index{is_lookup = true, name = N} | Rest], Acc) ->
+    Query = orddict:fetch(N, QD),
+    Record = Query#query.record,
+    Params = lists:join(", ", Query#query.bind_params),
     Name = proto_crudl_utils:to_string(N),
     S = Name ++ "(R = " ++ Record ++ ") when is_record(R, " ++ RecordName ++ ") ->\n"
-        "    Params = " ++ Params ++ ",\n"
+        "    Params = [" ++ Params ++ "],\n"
         "    case pgo:query(?" ++ string:to_upper(Name) ++ ", Params, #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
         "        #{command := select, num_rows := NRows, rows := Rows} ->\n"
         "            {ok, NRows, Rows};\n"
         "        {error, Reason} ->\n"
         "            {error, Reason}\n"
         "    end.\n\n",
-    list_lookup_fun(RecordName, Rest, [S | Acc]);
-list_lookup_fun(RecordName, [_Idx | Rest], Acc) ->
-    list_lookup_fun(RecordName, Rest, Acc).
+    list_lookup_fun(RecordName, T, Rest, [S | Acc]);
+list_lookup_fun(RecordName, T, [_Idx | Rest], Acc) ->
+    list_lookup_fun(RecordName, T, Rest, Acc).
 
 
 -spec mappings_fun(string() | undefined, #table{}) -> string().
-mappings_fun(RecordName, #table{mappings = Mappings}) ->
-    mapping_fun(RecordName, Mappings, []).
+mappings_fun(RecordPrefix, T = #table{mappings = Mappings}) ->
+    mapping_fun(RecordPrefix, T, Mappings, []).
 
-mapping_fun(_RecordName, [], Acc) ->
+mapping_fun(_RecordPrefix, _T, [], Acc) ->
     lists:join("\n\n", Acc);
-mapping_fun(undefined, [{Name, #custom_query{query = Query}} | Rest], Acc) ->
-    Cnt = count_params(Query),
-    Params = lists:flatten(lists:join(", ", ["Value" ++ integer_to_list(C) || C <- lists:seq(1, Cnt)])),
-    S = proto_crudl_utils:to_string(Name) ++ "(" ++ Params ++ ") ->\n"
+mapping_fun(undefined, T = #table{schema = S, name = N, columns = ColDict}, [{Name, #custom_query{query = QueryIn}} | Rest], Acc) ->
+    {ok, Query, P, IP, _Record, _Map} = proto_crudl_parse:parse_query(proto_crudl_utils:to_string(S) ++ "." ++ proto_crudl_utils:camel_case(N), QueryIn, ColDict),
+    Params = lists:join(", ", P),
+    InParams = lists:join(", ", IP),
+    S = proto_crudl_utils:to_string(Name) ++ "(" ++ InParams ++ ") ->\n"
     "    Params = [" ++ Params ++ "],\n"
-    "    case pgo:query(?" ++ string:to_upper(atom_to_list(Name)) ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
+    "    case pgo:query(\"" ++ Query ++ "\", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{num_rows := NRows, rows := Rows} ->\n"
     "            {ok, NRows, Rows};\n"
     "        {error, Reason} ->\n"
     "            {error, Reason}\n"
     "    end.",
-    mapping_fun(undefined, Rest, [S | Acc]);
-mapping_fun(RecordPrefix, [{Name, #custom_query{query = Query, result_set = RS}} | Rest], Acc) ->
-    Cnt = count_params(Query),
-    FunParams = case length(RS) of
-                    0 ->
-                        "";
-                    _ ->
-                        RecordName = "'" ++ RecordPrefix ++ "." ++ proto_crudl_utils:camel_case(Name) ++ "'",
-                        "{decode_fun_params, [" ++ RecordName ++ "]},"
-                end,
-    Params = lists:flatten(lists:join(", ", ["Value" ++ integer_to_list(C) || C <- lists:seq(1, Cnt)])),
-    S = proto_crudl_utils:to_string(Name) ++ "(" ++ Params ++ ") ->\n"
+    mapping_fun(undefined, T, Rest, [S | Acc]);
+mapping_fun(RecordPrefix, T = #table{columns = ColDict} , [{Name, #custom_query{query = QueryIn}} | Rest], Acc) ->
+    FunName = proto_crudl_utils:to_string(Name),
+    RecordName = RecordPrefix ++ "." ++ proto_crudl_utils:camel_case(FunName),
+    {ok, Query, P, IP, _Record, _Map} = proto_crudl_parse:parse_query(RecordName, QueryIn, ColDict),
+    Params = lists:join(", ", P),
+    InParams = lists:join(", ", IP),
+    S = FunName ++ "(" ++ InParams ++ ") ->\n"
     "    Params = [" ++ Params ++ "],\n"
-    "    case pgo:query(?" ++ string:to_upper(atom_to_list(Name)) ++ ", Params, #{decode_opts => [" ++ FunParams ++ "{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
+    "    case pgo:query(\"" ++ Query ++ "\", Params, #{decode_opts => [{decode_fun_params, ['" ++ RecordName ++ "']}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{num_rows := NRows, rows := Rows} ->\n"
     "            {ok, NRows, Rows};\n"
     "        {error, Reason} ->\n"
     "            {error, Reason}\n"
     "    end.",
-    mapping_fun(RecordPrefix, Rest, [S | Acc]).
+    mapping_fun(RecordPrefix, T, Rest, [S | Acc]).
 
 %%
 %% Tests
@@ -1255,7 +1302,9 @@ read_database_test() ->
     [FR] = Table#table.relations,
     [FC] = FR#foreign_relation.foreign_columns,
     ?LOG_INFO("FR=~p, local_name=~p", [FR, FC#foreign_column.local_name]),
-    ?assertEqual([#foreign_relation{foreign_schema  = <<"test_schema">>, foreign_table = <<"user">>,
+    ?assertEqual([#foreign_relation{constraint_name = <<"fk_user_user">>,
+                                    foreign_schema  = <<"test_schema">>,
+                                    foreign_table = <<"user">>,
                                     foreign_columns = [#foreign_column{foreign_name     = <<"user_id">>,
                                                                        local_name       = <<"aka_id">>,
                                                                        ordinal_position = 1}],
@@ -1275,7 +1324,7 @@ read_database_test() ->
 
     % primary key should be excluded
     ?assertEqual([<<"first_name">>, <<"last_name">>, <<"email">>, <<"geog">>, <<"pword_hash">>,
-                  <<"user_token">>, <<"enabled">>, <<"aka_id">>, <<"my_array">>, <<"user_type">>,
+                  <<"user_token">>, <<"enabled">>, <<"my_array">>, <<"user_type">>,
                   <<"number_value">>, <<"created_on">>, <<"updated_on">>, <<"due_date">>, <<"user_state">>], Table#table.update_list),
 
     ?assertEqual(<<"user_id">>, Table#table.sequence),

@@ -120,6 +120,9 @@ Several of the eunit tests rely on the presence of the example database. Current
 
     rebar3 eunit
 
+**Note**, when rerunning eunit tests after generating the example code, you must `reset` the database otherwise the `version` 
+columns may still be present and cause the tests to faile.
+
 
 ## Building the Example
 The project includes an example schema and scripts to build located in the `example` directory. You
@@ -209,6 +212,12 @@ create(_M) ->
 
 I would recommend that you build the example project and then review the generated code for `test_schema_user_db.erl` to get a better
 understanding.
+
+## Updating foreign key values
+`proto-crudl` generates all the Create, Read, Update, Delete, and List/Lookup functions based on the table schema while
+supporting several key features. It is important to note that guards are needed to keep from accidentally updating foreign
+key relationships, to this end, the `update` function does not include any foreign key fields, rather, it generates
+specific update functions for the foreign key.
 
 ## The special version column
 The proto_crudl framework implements all the necessary code to support handling stale changes to a record with a version column. 
