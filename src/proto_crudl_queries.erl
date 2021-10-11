@@ -45,7 +45,7 @@ build_queries([{Key, T = #table{schema = S, name = N, query_dict = QD0, columns 
           end,
 
     % If no primary keys, then no read, update or delete
-    QD6 = case T#table.pkey_list of
+    QD5 = case T#table.pkey_list of
               [] ->
                   QD2;
               _ ->
@@ -67,18 +67,6 @@ build_queries([{Key, T = #table{schema = S, name = N, query_dict = QD0, columns 
                                                        in_params = UIP, bind_params = UP,
                                                        record = UR, map = UM}, QD3),
 
-                  Fun = fun(#foreign_relation{constraint_name = ConstraintName, foreign_columns = FCols}, QD) ->
-                      UpdateFkeySql = build_update_fkey_sql(Schema, Name, T, FCols),
-                      {ok, UFQ, UFP, UFIP, UFR, UFM} = proto_crudl_parse:parse_query(RecordName, UpdateFkeySql, ColDict),
-                      CN = proto_crudl_utils:to_string(ConstraintName),
-                      orddict:store(ConstraintName, #query{name     = "UPDATE_" ++ string:to_upper(CN),
-                                                           fun_name = "update_" ++ string:to_lower(CN), fun_args = "1",
-                                                           query    = UFQ,
-                                                           in_params = UFIP, bind_params = UFP,
-                                                           record = UFR, map = UFM}, QD)
-                        end,
-                  QD5 = lists:foldl(Fun, QD4, T#table.relations),
-
                   % DELETE
                   DeleteSql = build_delete_sql(Schema, Name, T),
                   {ok, DQ, DP, DIP, DR, DM} = proto_crudl_parse:parse_query(RecordName, DeleteSql, ColDict),
@@ -86,9 +74,21 @@ build_queries([{Key, T = #table{schema = S, name = N, query_dict = QD0, columns 
                                                  fun_name = "delete", fun_args = "1",
                                                  query    = DQ,
                                                  in_params = DIP, bind_params = DP,
-                                                 record = DR, map = DM}, QD5)
+                                                 record = DR, map = DM}, QD4)
           end,
 
+
+    Fun = fun(#foreign_relation{constraint_name = ConstraintName, foreign_columns = FCols}, QD) ->
+        UpdateFkeySql = build_update_fkey_sql(Schema, Name, T, FCols),
+        {ok, UFQ, UFP, UFIP, UFR, UFM} = proto_crudl_parse:parse_query(RecordName, UpdateFkeySql, ColDict),
+        CN = proto_crudl_utils:to_string(ConstraintName),
+        orddict:store(ConstraintName, #query{name     = "UPDATE_" ++ string:to_upper(CN),
+                                             fun_name = "update_" ++ string:to_lower(CN), fun_args = "1",
+                                             query    = UFQ,
+                                             in_params = UFIP, bind_params = UFP,
+                                             record = UFR, map = UFM}, QD)
+          end,
+    QD6 = lists:foldl(Fun, QD5, T#table.relations),
 
     SelectLimitSql = build_select_with_limit_sql(Schema, Name, T),
     {ok, SLQ, SLP, SLIP, SLR, SLM} = proto_crudl_parse:parse_query(RecordName, SelectLimitSql, ColDict),
@@ -518,7 +518,7 @@ define_test() ->
     ?assertEqual([<<"user_id">>,<<"first_name">>,<<"last_name">>,<<"email">>,
                   <<"user_token">>,<<"enabled">>,<<"aka_id">>,<<"my_array">>,
                   <<"user_type">>,<<"number_value">>,<<"created_on">>,
-                  <<"updated_on">>,<<"due_date">>,<<"user_state">>,<<"lat">>,<<"lon">>], SelectList),
+                  <<"updated_on">>,<<"due_date">>,<<"user_state">>,<<"user_state_type">>, <<"lat">>,<<"lon">>], SelectList),
 
     ColumnList = orddict:fetch_keys(UserTable#table.columns),
     ?LOG_INFO("ColumnList=~p", [ColumnList]),
@@ -526,26 +526,26 @@ define_test() ->
                   <<"enabled">>,<<"first_name">>,<<"geog">>,<<"last_name">>,
                   <<"lat">>,<<"lon">>,<<"my_array">>,<<"number_value">>,
                   <<"pword_hash">>,<<"updated_on">>,<<"user_id">>,
-                  <<"user_state">>,<<"user_token">>,<<"user_type">>], ColumnList),
+                  <<"user_state">>,<<"user_state_type">>, <<"user_token">>,<<"user_type">>], ColumnList),
 
     SelectOutput = build_select_sql(S, N, UserTable),
     ?LOG_INFO("SelectOutput=~p~n", [SelectOutput]),
-    SelectAssert = "SELECT user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon FROM test_schema.user WHERE user_id = $user_id",
+    SelectAssert = "SELECT user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, user_state_type, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon FROM test_schema.user WHERE user_id = $user_id",
     ?assertEqual(SelectAssert, SelectOutput),
 
     InsertOutput = build_insert_sql(S, N, UserTable),
     ?LOG_INFO("InsertOutput=~p~n", [InsertOutput]),
-    InsertAssert = "INSERT INTO test_schema.user (first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, geog) VALUES ($first_name, $last_name, $email, $user_token, $enabled, $aka_id, $my_array, $user_type, $number_value, $created_on, $updated_on, $due_date, $user_state, ST_POINT($lon, $lat)::geography) RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon",
+    InsertAssert = "INSERT INTO test_schema.user (first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, user_state_type, geog) VALUES ($first_name, $last_name, $email, $user_token, $enabled, $aka_id, $my_array, $user_type, $number_value, $created_on, $updated_on, $due_date, $user_state, $user_state_type, ST_POINT($lon, $lat)::geography) RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, user_state_type, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon",
     ?assertEqual(InsertAssert, InsertOutput),
 
     DefaultOutput = build_insert_defaults_sql(S, N, UserTable),
     ?LOG_INFO("DefaultOutput=~p~n", [DefaultOutput]),
-    DefaultAssert = "INSERT INTO test_schema.user (first_name, last_name, email, aka_id, my_array, user_type, number_value, updated_on, due_date, user_state, geog) VALUES ($first_name, $last_name, $email, $aka_id, $my_array, $user_type, $number_value, $updated_on, $due_date, $user_state, ST_POINT($lon, $lat)::geography) RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon",
+    DefaultAssert = "INSERT INTO test_schema.user (first_name, last_name, email, aka_id, my_array, user_type, number_value, updated_on, due_date, user_state, geog) VALUES ($first_name, $last_name, $email, $aka_id, $my_array, $user_type, $number_value, $updated_on, $due_date, $user_state, ST_POINT($lon, $lat)::geography) RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, user_state_type, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon",
     ?assertEqual(DefaultAssert, DefaultOutput),
 
     UpdateOutput = build_update_sql(S, N, UserTable),
     ?LOG_INFO("UpdateOutput=~p~n", [UpdateOutput]),
-    UpdateAssert = "UPDATE test_schema.user SET first_name = $first_name, last_name = $last_name, email = $email, user_token = $user_token, enabled = $enabled, my_array = $my_array, user_type = $user_type, number_value = $number_value, created_on = $created_on, updated_on = $updated_on, due_date = $due_date, user_state = $user_state, geog = ST_POINT($lon, $lat)::geography WHERE user_id = $user_id RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon",
+    UpdateAssert = "UPDATE test_schema.user SET first_name = $first_name, last_name = $last_name, email = $email, user_token = $user_token, enabled = $enabled, my_array = $my_array, user_type = $user_type, number_value = $number_value, created_on = $created_on, updated_on = $updated_on, due_date = $due_date, user_state = $user_state, user_state_type = $user_state_type, geog = ST_POINT($lon, $lat)::geography WHERE user_id = $user_id RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, user_state_type, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon",
     ?assertEqual(UpdateAssert, UpdateOutput),
 
     DeleteOutput = build_delete_sql(S, N, UserTable),
@@ -555,7 +555,7 @@ define_test() ->
 
     ExpandedOutput = maybe_expand_sql(UserTable, "SELECT * FROM test_schema.user"),
     ?LOG_INFO("ExpandedOutput=~p", [ExpandedOutput]),
-    ExpandedAssert = "SELECT user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon FROM test_schema.user",
+    ExpandedAssert = "SELECT user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, user_state_type, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon FROM test_schema.user",
     ?assertEqual(ExpandedAssert, ExpandedOutput),
 
     ok = epgsql:close(C),
@@ -604,7 +604,8 @@ inject_version_test() ->
     ?assertEqual([<<"user_id">>,<<"first_name">>,<<"last_name">>,<<"email">>,
                   <<"user_token">>,<<"enabled">>,<<"aka_id">>,<<"my_array">>,
                   <<"user_type">>,<<"number_value">>,<<"created_on">>,
-                  <<"updated_on">>,<<"due_date">>,<<"user_state">>,<<"version">>,<<"lat">>,<<"lon">>], SelectList),
+                  <<"updated_on">>,<<"due_date">>,<<"user_state">>,<<"user_state_type">>,
+                  <<"version">>,<<"lat">>,<<"lon">>], SelectList),
 
     ColumnList = orddict:fetch_keys(UserTable#table.columns),
     ?LOG_INFO("ColumnList=~p", [ColumnList]),
@@ -612,7 +613,7 @@ inject_version_test() ->
                   <<"enabled">>,<<"first_name">>,<<"geog">>,<<"last_name">>,
                   <<"lat">>,<<"lon">>,<<"my_array">>,<<"number_value">>,
                   <<"pword_hash">>,<<"updated_on">>,<<"user_id">>,
-                  <<"user_state">>,<<"user_token">>,<<"user_type">>,<<"version">>], ColumnList),
+                  <<"user_state">>,<<"user_state_type">>,<<"user_token">>,<<"user_type">>,<<"version">>], ColumnList),
 
     Version = orddict:fetch(<<"version">>, UserTable#table.columns),
     ?assertEqual(true, Version#column.is_version),
@@ -624,17 +625,17 @@ inject_version_test() ->
 
     InsertOutput = build_insert_sql(S, N, UserTable),
     ?LOG_INFO("InsertOutput=~p~n", [InsertOutput]),
-    InsertAssert = "INSERT INTO test_schema.user (first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, version, geog) VALUES ($first_name, $last_name, $email, $user_token, $enabled, $aka_id, $my_array, $user_type, $number_value, $created_on, $updated_on, $due_date, $user_state, 0, ST_POINT($lon, $lat)::geography) RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, version, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon",
+    InsertAssert = "INSERT INTO test_schema.user (first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, user_state_type, version, geog) VALUES ($first_name, $last_name, $email, $user_token, $enabled, $aka_id, $my_array, $user_type, $number_value, $created_on, $updated_on, $due_date, $user_state, $user_state_type, 0, ST_POINT($lon, $lat)::geography) RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, user_state_type, version, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon",
     ?assertEqual(InsertAssert, InsertOutput),
 
     UpdateOutput = build_update_sql(S, N, UserTable),
     ?LOG_INFO("UpdateOutput=~p~n", [UpdateOutput]),
     % #'test_schema.User'{user_id = UserId, first_name = FirstName, last_name = LastName, email = Email, user_token = UserToken, enabled = Enabled, aka_id = AkaId, my_array = MyArray, user_type = UserType, number_value = NumberValue, created_on = CreatedOn, updated_on = UpdatedOn, due_date = DueDate, user_state = UserState, version = Version, lat = Lat, lon = Lon}
-    UpdateAssert = "UPDATE test_schema.user SET first_name = $first_name, last_name = $last_name, email = $email, user_token = $user_token, enabled = $enabled, my_array = $my_array, user_type = $user_type, number_value = $number_value, created_on = $created_on, updated_on = $updated_on, due_date = $due_date, user_state = $user_state, version = version + 1, geog = ST_POINT($lon, $lat)::geography WHERE user_id = $user_id AND version = $version RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, version, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon",
+    UpdateAssert = "UPDATE test_schema.user SET first_name = $first_name, last_name = $last_name, email = $email, user_token = $user_token, enabled = $enabled, my_array = $my_array, user_type = $user_type, number_value = $number_value, created_on = $created_on, updated_on = $updated_on, due_date = $due_date, user_state = $user_state, user_state_type = $user_state_type, version = version + 1, geog = ST_POINT($lon, $lat)::geography WHERE user_id = $user_id AND version = $version RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, user_state_type, version, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon",
     ?assertEqual(UpdateAssert, UpdateOutput),
 
     UpdateFkeyOutput = build_update_fkey_sql(S, N, UserTable, [#foreign_column{local_name = <<"aka_id">>}]),
-    UpdateFkeyAssert = "UPDATE test_schema.user SET version = version + 1, aka_id = $aka_id WHERE user_id = $user_id RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, version, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon",
+    UpdateFkeyAssert = "UPDATE test_schema.user SET version = version + 1, aka_id = $aka_id WHERE user_id = $user_id RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, user_state_type, version, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon",
     ?assertEqual(UpdateFkeyAssert, UpdateFkeyOutput),
 
     ok = epgsql:close(C),

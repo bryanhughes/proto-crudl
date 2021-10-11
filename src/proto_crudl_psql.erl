@@ -1266,7 +1266,7 @@ read_database_test() ->
     ExpectedList = [<<"aka_id">>, <<"created_on">>, <<"due_date">>, <<"email">>,
                     <<"enabled">>, <<"first_name">>, <<"geog">>, <<"last_name">>,
                     <<"my_array">>, <<"number_value">>, <<"pword_hash">>,
-                    <<"updated_on">>, <<"user_id">>, <<"user_state">>, <<"user_token">>,
+                    <<"updated_on">>, <<"user_id">>, <<"user_state">>, <<"user_state_type">>, <<"user_token">>,
                     <<"user_type">>],
     KeyList = orddict:fetch_keys(Table#table.columns),
     ?assertEqual(ExpectedList, KeyList),
@@ -1315,21 +1315,23 @@ read_database_test() ->
                   <<"geog">>, <<"pword_hash">>, <<"user_token">>, <<"enabled">>,
                   <<"aka_id">>, <<"my_array">>, <<"user_type">>,
                   <<"number_value">>, <<"created_on">>, <<"updated_on">>,
-                  <<"due_date">>, <<"user_state">>], Table#table.select_list),
+                  <<"due_date">>, <<"user_state">>, <<"user_state_type">>], Table#table.select_list),
 
     % sequence should be excluded
     ?assertEqual([<<"first_name">>, <<"last_name">>, <<"email">>, <<"geog">>, <<"pword_hash">>,
                   <<"user_token">>, <<"enabled">>, <<"aka_id">>, <<"my_array">>, <<"user_type">>,
-                  <<"number_value">>, <<"created_on">>, <<"updated_on">>, <<"due_date">>, <<"user_state">>], Table#table.insert_list),
+                  <<"number_value">>, <<"created_on">>, <<"updated_on">>, <<"due_date">>, <<"user_state">>,
+                  <<"user_state_type">>], Table#table.insert_list),
 
     % primary key should be excluded
     ?assertEqual([<<"first_name">>, <<"last_name">>, <<"email">>, <<"geog">>, <<"pword_hash">>,
                   <<"user_token">>, <<"enabled">>, <<"my_array">>, <<"user_type">>,
-                  <<"number_value">>, <<"created_on">>, <<"updated_on">>, <<"due_date">>, <<"user_state">>], Table#table.update_list),
+                  <<"number_value">>, <<"created_on">>, <<"updated_on">>, <<"due_date">>, <<"user_state">>,
+                  <<"user_state_type">>], Table#table.update_list),
 
     ?assertEqual(<<"user_id">>, Table#table.sequence),
 
-    ?assertEqual([<<"user_token">>, <<"enabled">>,<<"created_on">>], Table#table.default_list),
+    ?assertEqual([<<"user_token">>, <<"enabled">>,<<"created_on">>,<<"user_state_type">>], Table#table.default_list),
 
     UserToken = orddict:fetch(<<"user_token">>, Table#table.columns),
     ?assertEqual(<<"uuid_generate_v1()">>, UserToken#column.default),

@@ -316,10 +316,11 @@ proto_test() ->
   optional int32 number_value = 10;
   optional google.protobuf.Timestamp created_on = 11;
   optional google.protobuf.Timestamp updated_on = 12;
-  optional int64 due_date = 13;
+  optional google.protobuf.Timestamp due_date = 13;
   optional string user_state = 14;
-  optional double lat = 15;
-  optional double lon = 16;
+  optional bool user_state_type = 15;
+  optional double lat = 16;
+  optional double lon = 17;
 }\n\n",
     ?assertEqual(Expected, Code),
 

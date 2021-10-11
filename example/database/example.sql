@@ -205,6 +205,7 @@ CREATE  TABLE test_schema."user" (
 	updated_on           timestamp   ,
 	due_date             date   ,
 	user_state           varchar   ,
+	user_state_type      boolean DEFAULT true  ,
 	CONSTRAINT lookup_email UNIQUE ( email ) ,
 	CONSTRAINT pk_user PRIMARY KEY ( user_id )
  );

@@ -19,45 +19,47 @@
 parse_query(RecordName, QueryIn, ColDict) ->
     case erl_scan:string(QueryIn) of
         {ok, Tokens, _} ->
-            logger:info("Tokens=~p", [Tokens]),
-            {QueryOut, BindParams, InParams, Record, Map} = parse_placeholders(ColDict, RecordName, Tokens, [], [], [], [], 1, QueryIn),
-            logger:info("BindParams=~p", [BindParams]),
+            logger:debug("Tokens=~p", [Tokens]),
+            {QueryOut, BindParams, InParams, Record, Map} = parse_placeholders(ColDict, RecordName, Tokens, dict:new(),
+                                                                               [], [], [], [], 1, QueryIn),
+            logger:debug("BindParams=~p", [BindParams]),
             {ok, QueryOut, BindParams, InParams, Record, Map};
         {error, Reason} ->
             io:format("ERROR: Failed to parse Query=~p, Reason=~p", [QueryIn, Reason]),
             {error, Reason}
     end.
 
-parse_placeholders(_ColDict, RecordName, [], BAcc, IAcc, RAcc, MAcc, _Cnt, NewQuery) ->
+parse_placeholders(_ColDict, RecordName, [], _PosDict, BAcc, IAcc, RAcc, MAcc, _Cnt, NewQuery) ->
     {lists:flatten(NewQuery),
      lists:reverse(BAcc),
      lists:reverse(IAcc),
      lists:flatten("#'" ++ RecordName ++ "'{" ++ lists:join(", ", lists:reverse(RAcc)) ++ "}"),
      lists:flatten("#{" ++ lists:join(", ", lists:reverse(MAcc)) ++ "}")};
-parse_placeholders(ColDict, RecordName, [{char, N, Chr}, {_, N, Remaining} | Rest], BAcc, IAcc, RAcc, MAcc, Cnt, Query) ->
+parse_placeholders(ColDict, RecordName, [{char, N, Chr}, {_, N, Remaining} | Rest], PosDict, BAcc, IAcc, RAcc, MAcc, Cnt, Query) ->
     FN = proto_crudl_utils:to_binary(lists:flatten([Chr, atom_to_list(Remaining)])),
     logger:debug("Remaining=~p, FN=~p", [Remaining, FN]),
     BindVar = proto_crudl_utils:camel_case(FN),
-    logger:debug("BindVar=~p", [BindVar]),
-    do_parse_placeholders(index_of(BindVar, BAcc), BindVar, ColDict, RecordName, Rest, FN, BAcc, IAcc, RAcc, MAcc, Cnt, Query);
-parse_placeholders(ColDict, RecordName, [_Token | Rest], BAcc, IAcc, RAcc, MAcc, Cnt, Query) ->
+    logger:info("BindVar=~p, FN=~p", [BindVar, FN]),
+    do_parse_placeholders(dict:find(FN, PosDict), PosDict, BindVar, ColDict, RecordName, Rest, FN, BAcc, IAcc, RAcc, MAcc, Cnt, Query);
+parse_placeholders(ColDict, RecordName, [_Token | Rest], PosDict, BAcc, IAcc, RAcc, MAcc, Cnt, Query) ->
     logger:debug("_Token=~p", [_Token]),
-    parse_placeholders(ColDict, RecordName, Rest, BAcc, IAcc, RAcc, MAcc, Cnt, Query).
+    parse_placeholders(ColDict, RecordName, Rest, PosDict, BAcc, IAcc, RAcc, MAcc, Cnt, Query).
 
-do_parse_placeholders(not_found, BindVar, ColDict, RecordName, Rest, FN, BAcc, IAcc, RAcc, MAcc, Cnt, Query) ->
-    NewQuery = string:replace(Query, "$" ++ proto_crudl_utils:to_string(FN), "$" ++ integer_to_list(Cnt), all),
+do_parse_placeholders(error, PosDict, BindVar, ColDict, RecordName, Rest, FN, BAcc, IAcc, RAcc, MAcc, Cnt, Query) ->
+    NewQuery = string:replace(Query, "$" ++ proto_crudl_utils:to_string(FN), "$" ++ integer_to_list(Cnt)),
     case orddict:find(FN, ColDict) of
         {ok, Column} ->
             Mapped = fixup_param_mapping(FN, Column),
             RecordAssign = lists:flatten(proto_crudl_utils:to_string(FN) ++ " = " ++ BindVar),
             MapAssign = lists:flatten(proto_crudl_utils:to_string(FN) ++ " := " ++ BindVar),
-            parse_placeholders(ColDict, RecordName, Rest, [Mapped | BAcc], [BindVar | IAcc], [RecordAssign | RAcc],
+            parse_placeholders(ColDict, RecordName, Rest, dict:store(FN, Cnt, PosDict), [Mapped | BAcc], [BindVar | IAcc], [RecordAssign | RAcc],
                                [MapAssign | MAcc], Cnt + 1, NewQuery);
         _ ->
-            parse_placeholders(ColDict, RecordName, Rest, [BindVar | BAcc], [BindVar | IAcc], RAcc, MAcc, Cnt + 1, NewQuery)
+            parse_placeholders(ColDict, RecordName, Rest, dict:store(FN, Cnt, PosDict), [BindVar | BAcc], [BindVar | IAcc], RAcc, MAcc, Cnt + 1, NewQuery)
     end;
-do_parse_placeholders(_Pos, _BindVar, ColumnList, RecordName, Rest, _FN, BAcc, IAcc, RAcc, MAcc, Cnt, Query) ->
-    parse_placeholders(ColumnList, RecordName, Rest, BAcc, IAcc, RAcc, MAcc, Cnt, Query).
+do_parse_placeholders({ok, Pos}, PosDict, _BindVar, ColDict, RecordName, Rest, FN, BAcc, IAcc, RAcc, MAcc, Cnt, Query) ->
+    NewQuery = string:replace(Query, "$" ++ proto_crudl_utils:to_string(FN), "$" ++ integer_to_list(Pos)),
+    parse_placeholders(ColDict, RecordName, Rest, PosDict, BAcc, IAcc, RAcc, MAcc, Cnt, NewQuery).
 
 fixup_param_mapping(FN, #column{valid_values = VV}) when length(VV) > 0 ->
     proto_crudl_utils:to_string(FN) ++ "_value(" ++ proto_crudl_utils:camel_case(FN) ++ ")";
@@ -70,12 +72,6 @@ fixup_param_mapping(FN, #column{udt_name = Udt}) ->
     end;
 fixup_param_mapping(FN, _) ->
     proto_crudl_utils:camel_case(FN).
-
-index_of(Item, List) -> index_of(Item, List, 1).
-
-index_of(_, [], _)                -> not_found;
-index_of(Item, [Item | _], Index) -> Index;
-index_of(Item, [_ | Tl], Index)   -> index_of(Item, Tl, Index + 1).
 
 %%
 %% Tests
@@ -95,7 +91,7 @@ bind_param_test() ->
     ?LOG_INFO("====================== bind_param_test() START ======================"),
 
     % The input
-    QueryIn = "UPDATE test_schema.user SET last_name = $last_name, first_name = $first_name, email = $email, enabled = $enabled, my_array = $my_array, user_token = $user_token, user_type = $user_type, number_value = $number_value, due_date = $due_date, user_state = $user_state, version = version + 1, geog = ST_POINT($lon, $lat)::geography WHERE user_id = $user_id AND version = $version",
+    QueryIn = "UPDATE test_schema.user SET last_name = $last_name, first_name = $first_name, email = $email, enabled = $enabled, my_array = $my_array, user_token = $user_token, user_type = $user_type, number_value = $number_value, due_date = $due_date, user_state = $user_state, user_state_type = $user_state_type, version = version + 1, geog = ST_POINT($lon, $lat)::geography WHERE user_id = $user_id AND version = $version",
 
     % The column dict
     ColDict = orddict:from_list([{<<"user_id">>, #column{is_pkey = true}},
@@ -112,6 +108,7 @@ bind_param_test() ->
                                  {<<"updated_on">>, #column{udt_name = <<"timestamp">>}},
                                  {<<"due_date">>, #column{udt_name = <<"timestamp">>}},
                                  {<<"user_state">>, #column{}},
+                                 {<<"user_state_type">>, #column{}},
                                  {<<"version">>, #column{}},
                                  {<<"lat">>, #column{is_virtual = true}},
                                  {<<"lon">>, #column{is_virtual = true}}]),
@@ -120,20 +117,20 @@ bind_param_test() ->
 
     % The output
     ParamsAssert = ["LastName","FirstName","Email","Enabled","MyArray", "user_token_value(UserToken)","UserType","NumberValue",
-                    "ts_decode(DueDate)","UserState","Lon","Lat","UserId", "Version"],
+                    "ts_decode(DueDate)","UserState","UserStateType","Lon","Lat","UserId", "Version"],
     ?assertEqual(ParamsAssert, Params),
 
     InParamsAssert = ["LastName","FirstName","Email","Enabled","MyArray", "UserToken","UserType","NumberValue",
-                      "DueDate","UserState","Lon","Lat","UserId", "Version"],
+                      "DueDate","UserState","UserStateType","Lon","Lat","UserId", "Version"],
     ?assertEqual(InParamsAssert, InParams),
 
-    RecordAssert = "#'test_schema.User'{last_name = LastName, first_name = FirstName, email = Email, enabled = Enabled, my_array = MyArray, user_token = UserToken, user_type = UserType, number_value = NumberValue, due_date = DueDate, user_state = UserState, lon = Lon, lat = Lat, user_id = UserId, version = Version}",
+    RecordAssert = "#'test_schema.User'{last_name = LastName, first_name = FirstName, email = Email, enabled = Enabled, my_array = MyArray, user_token = UserToken, user_type = UserType, number_value = NumberValue, due_date = DueDate, user_state = UserState, user_state_type = UserStateType, lon = Lon, lat = Lat, user_id = UserId, version = Version}",
     ?assertEqual(RecordAssert, Record),
 
-    MapAssert = "#{last_name := LastName, first_name := FirstName, email := Email, enabled := Enabled, my_array := MyArray, user_token := UserToken, user_type := UserType, number_value := NumberValue, due_date := DueDate, user_state := UserState, lon := Lon, lat := Lat, user_id := UserId, version := Version}",
+    MapAssert = "#{last_name := LastName, first_name := FirstName, email := Email, enabled := Enabled, my_array := MyArray, user_token := UserToken, user_type := UserType, number_value := NumberValue, due_date := DueDate, user_state := UserState, user_state_type := UserStateType, lon := Lon, lat := Lat, user_id := UserId, version := Version}",
     ?assertEqual(MapAssert, Map),
 
-    QueryAssert = "UPDATE test_schema.user SET last_name = $1, first_name = $2, email = $3, enabled = $4, my_array = $5, user_token = $6, user_type = $7, number_value = $8, due_date = $9, user_state = $10, version = version + 1, geog = ST_POINT($11, $12)::geography WHERE user_id = $13 AND version = $14",
+    QueryAssert = "UPDATE test_schema.user SET last_name = $1, first_name = $2, email = $3, enabled = $4, my_array = $5, user_token = $6, user_type = $7, number_value = $8, due_date = $9, user_state = $10, user_state_type = $11, version = version + 1, geog = ST_POINT($12, $13)::geography WHERE user_id = $14 AND version = $15",
     ?assertEqual(QueryAssert, Query),
 
     ?LOG_INFO("====================== bind_param_test() END ======================"),
