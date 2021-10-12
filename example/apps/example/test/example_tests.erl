@@ -83,7 +83,7 @@ crudl_proto_maps_test() ->
 
     % The internal utility is to convert the results into a list of maps where each map is a record. Even though a read
     % will always return a single record, it still uses the same implementation, versus just {ok, Map}.
-    {ok, Bryan3} = test_schema_user_db:read(#{user_id => BryanId}),
+    {ok, Bryan3} = test_schema_user_db:read(BryanId),
     ?LOG_INFO("Bryan3=~p", [Bryan3]),
 
     ?assertEqual(<<"hughesb@gmail.com">>, maps:get(email, Bryan3)),
@@ -97,7 +97,7 @@ crudl_proto_maps_test() ->
     {ok, Bryan4a} = test_schema_user_db:update(Bryan4),
     ?assertEqual(1, maps:get(version, Bryan4a)),
 
-    {ok, Bryan5} = test_schema_user_db:read(Bryan),
+    {ok, Bryan5} = test_schema_user_db:read(BryanId),
     ?LOG_INFO("Bryan5=~p", [Bryan5]),
 
     ?assertEqual(<<"foo@gmail.com">>, maps:get(email, Bryan5)),
@@ -107,7 +107,7 @@ crudl_proto_maps_test() ->
     ?assertEqual(false, maps:get(enabled, Bryan5)),
     ?assertEqual(1, maps:get(version, Bryan5)),
 
-    {ok, Tom3} = test_schema_user_db:read(#{user_id => TomId}),
+    {ok, Tom3} = test_schema_user_db:read(TomId),
     ?LOG_INFO("Tom3=~p", [Tom3]),
 
     ?assertEqual(<<"tombagby@gmail.com">>, maps:get(email, Tom3)),
@@ -134,7 +134,7 @@ crudl_proto_maps_test() ->
     ?LOG_INFO("Exercising custom functions..."),
     {ok, 1, []} = test_schema_user_db:disable_user(<<"foo@gmail.com">>),
 
-    {ok, Bryan6} = test_schema_user_db:read(#{user_id => BryanId}),
+    {ok, Bryan6} = test_schema_user_db:read(BryanId),
     ?LOG_INFO("Bryan6=~p", [Bryan6]),
 
     ?assertEqual(<<"foo@gmail.com">>, maps:get(email, Bryan6)),
@@ -150,7 +150,7 @@ crudl_proto_maps_test() ->
     Version = maps:get(version, Result),
     ?LOG_INFO("SetToken=~p, Version=~p", [SetToken, Version]),
 
-    {ok, Bryan7} = test_schema_user_db:read(#{user_id => BryanId}),
+    {ok, Bryan7} = test_schema_user_db:read(BryanId),
     ?LOG_INFO("Bryan7=~p", [Bryan7]),
 
     ?assertEqual(<<"foo@gmail.com">>, maps:get(email, Bryan7)),
@@ -186,10 +186,10 @@ crudl_proto_maps_test() ->
     ?assertEqual(Bryan7, test_schema_user_db:from_proto(Decoded)),
 
     {ok, 1, []} = test_schema_user_db:delete_user_by_email(<<"foo@gmail.com">>),
-    notfound = test_schema_user_db:read(#{user_id => BryanId}),
+    notfound = test_schema_user_db:read(BryanId),
 
-    ok = test_schema_user_db:delete(#{user_id => TomId}),
-    notfound = test_schema_user_db:read(#{user_id => TomId}).
+    ok = test_schema_user_db:delete(TomId),
+    notfound = test_schema_user_db:read(TomId).
 
 custom_query_map_test() ->
     ?LOG_INFO("====================== custom_query_test() START ======================"),
@@ -286,7 +286,7 @@ crudl_proto_records_test() ->
 
     % The internal utility is to convert the results into a list of maps where each map is a record. Even though a read
     % will always return a single record, it still uses the same implementation, versus just {ok, Map}.
-    {ok, Bryan3} = test_schema_user_db:read(#'test_schema.User'{user_id = BryanId}),
+    {ok, Bryan3} = test_schema_user_db:read(BryanId),
     ?LOG_INFO("Bryan3=~p", [Bryan3]),
 
     ?assertEqual(<<"hughesb@gmail.com">>, Bryan3#'test_schema.User'.email),
@@ -300,7 +300,7 @@ crudl_proto_records_test() ->
     {ok, Bryan4a} = test_schema_user_db:update(Bryan4),
     ?assertEqual(1, Bryan4a#'test_schema.User'.version),
 
-    {ok, Bryan5} = test_schema_user_db:read(Bryan),
+    {ok, Bryan5} = test_schema_user_db:read(BryanId),
     ?LOG_INFO("Bryan5=~p", [Bryan5]),
 
     ?assertEqual(<<"foo@gmail.com">>, Bryan5#'test_schema.User'.email),
@@ -310,7 +310,7 @@ crudl_proto_records_test() ->
     ?assertEqual(false, Bryan5#'test_schema.User'.enabled),
     ?assertEqual(1, Bryan5#'test_schema.User'.version),
 
-    {ok, Tom3} = test_schema_user_db:read(#'test_schema.User'{user_id = TomId}),
+    {ok, Tom3} = test_schema_user_db:read(TomId),
     ?LOG_INFO("Tom3=~p", [Tom3]),
 
     ?assertEqual(<<"tombagby@gmail.com">>, Tom3#'test_schema.User'.email),
@@ -337,7 +337,7 @@ crudl_proto_records_test() ->
     ?LOG_INFO("Exercising custom functions..."),
     {ok, 1, []} = test_schema_user_db:disable_user(<<"foo@gmail.com">>),
 
-    {ok, Bryan6} = test_schema_user_db:read(#'test_schema.User'{user_id = BryanId}),
+    {ok, Bryan6} = test_schema_user_db:read(BryanId),
     ?LOG_INFO("Bryan6=~p", [Bryan6]),
 
     ?assertEqual(<<"foo@gmail.com">>, Bryan6#'test_schema.User'.email),
@@ -354,7 +354,7 @@ crudl_proto_records_test() ->
     Version = Result#'test_schema.SetToken'.version,
     ?LOG_INFO("SetToken=~p, Version=~p", [SetToken, Version]),
 
-    {ok, Bryan7} = test_schema_user_db:read(#'test_schema.User'{user_id = BryanId}),
+    {ok, Bryan7} = test_schema_user_db:read(BryanId),
     ?LOG_INFO("Bryan7=~p", [Bryan7]),
 
     ?assertEqual(<<"foo@gmail.com">>, Bryan7#'test_schema.User'.email),
@@ -413,10 +413,10 @@ crudl_proto_records_test() ->
     ?assertEqual(Bryan9, FromProto),
 
     {ok, 1, []} = test_schema_user_db:delete_user_by_email(<<"foo@gmail.com">>),
-    notfound = test_schema_user_db:read(#'test_schema.User'{user_id = BryanId}),
+    notfound = test_schema_user_db:read(BryanId),
 
-    ok = test_schema_user_db:delete(#'test_schema.User'{user_id = TomId}),
-    notfound = test_schema_user_db:read(#'test_schema.User'{user_id = TomId}).
+    ok = test_schema_user_db:delete(TomId),
+    notfound = test_schema_user_db:read(TomId).
 
 custom_query_record_test() ->
     ?LOG_INFO("====================== custom_query_record_test() START ======================"),
@@ -483,14 +483,10 @@ update_fkey_record_test() ->
 
     % Now do the update on the foreign key
 
-    {ok, Tom2} = test_schema_user_db:update_fk_user_user(Tom#'test_schema.User'{aka_id    = Bryan#'test_schema.User'.user_id,
-                                                                                user_type = '_123FUN'}),
+    {ok, Tom2} = test_schema_user_db:update_fk_user_user(Bryan#'test_schema.User'.user_id, Tom#'test_schema.User'.user_id),
     ?LOG_INFO("Tom2 (after update #2)=~p", [Tom2]),
 
     ?assertEqual(Bryan#'test_schema.User'.user_id, Tom2#'test_schema.User'.aka_id),
-
-    % Only the foreign key should have been updated
-    ?assertEqual('BUSY_GUY', Tom2#'test_schema.User'.user_type),
 
     ok.
 

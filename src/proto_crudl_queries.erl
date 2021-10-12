@@ -25,11 +25,11 @@ build_queries([{Key, T = #table{schema = S, name = N, query_dict = QD0, columns 
     % CREATE
     InsertSql = build_insert_sql(Schema, Name, T),
     {ok, IQ, IP, IIP, IR, IM} = proto_crudl_parse:parse_query(RecordName, InsertSql, ColDict),
-    QD1 = orddict:store("insert", #query{name     = "INSERT",
-                                         fun_name = "create", fun_args = integer_to_list(length(IP)),
-                                         query    = IQ,
-                                         in_params =  IIP, bind_params = IP,
-                                         record = IR, map = IM}, QD0),
+    QD1 = orddict:store("insert", #query{name      = "INSERT",
+                                         fun_name  = "create", fun_args = integer_to_list(length(IIP)),
+                                         query     = IQ,
+                                         in_params = IIP, bind_params = IP,
+                                         record    = IR, map = IM}, QD0),
 
     InsertDefaultSql = build_insert_defaults_sql(Schema, Name, T),
     {ok, IDQ, IDP, IDIP, IDR, IDM} = proto_crudl_parse:parse_query(RecordName, InsertDefaultSql, ColDict),
@@ -37,11 +37,11 @@ build_queries([{Key, T = #table{schema = S, name = N, query_dict = QD0, columns 
               true ->
                   QD1;
               _ ->
-                  orddict:store("insert_defaults", #query{name     = "INSERT_DEFAULTS",
-                                                          fun_name = "create", fun_args = integer_to_list(length(IDP)),
-                                                          query    = IDQ,
+                  orddict:store("insert_defaults", #query{name      = "INSERT_DEFAULTS",
+                                                          fun_name  = "create", fun_args = integer_to_list(length(IDIP)),
+                                                          query     = IDQ,
                                                           in_params = IDIP, bind_params = IDP,
-                                                          record = IDR, map = IDM}, QD1)
+                                                          record    = IDR, map = IDM}, QD1)
           end,
 
     % If no primary keys, then no read, update or delete
@@ -52,29 +52,29 @@ build_queries([{Key, T = #table{schema = S, name = N, query_dict = QD0, columns 
                   % READ
                   SelectSql = build_select_sql(Schema, Name, T),
                   {ok, SQ, SP, SIP, SR, SM} = proto_crudl_parse:parse_query(RecordName, SelectSql, ColDict),
-                  QD3 = orddict:store("select", #query{name     = "SELECT",
-                                                       fun_name = "read", fun_args = "1",
-                                                       query    = SQ,
+                  QD3 = orddict:store("select", #query{name      = "SELECT",
+                                                       fun_name  = "read", fun_args = integer_to_list(length(SIP)),
+                                                       query     = SQ,
                                                        in_params = SIP, bind_params = SP,
-                                                       record = SR, map = SM}, QD2),
+                                                       record    = SR, map = SM}, QD2),
 
                   % UPDATE
                   UpdateSql = build_update_sql(Schema, Name, T),
                   {ok, UQ, UP, UIP, UR, UM} = proto_crudl_parse:parse_query(RecordName, UpdateSql, ColDict),
-                  QD4 = orddict:store("update", #query{name     = "UPDATE",
-                                                       fun_name = "update", fun_args = "1",
-                                                       query    = UQ,
+                  QD4 = orddict:store("update", #query{name      = "UPDATE",
+                                                       fun_name  = "update", fun_args = "1",
+                                                       query     = UQ,
                                                        in_params = UIP, bind_params = UP,
-                                                       record = UR, map = UM}, QD3),
+                                                       record    = UR, map = UM}, QD3),
 
                   % DELETE
                   DeleteSql = build_delete_sql(Schema, Name, T),
                   {ok, DQ, DP, DIP, DR, DM} = proto_crudl_parse:parse_query(RecordName, DeleteSql, ColDict),
-                  orddict:store("delete", #query{name     = "DELETE",
-                                                 fun_name = "delete", fun_args = "1",
-                                                 query    = DQ,
+                  orddict:store("delete", #query{name      = "DELETE",
+                                                 fun_name  = "delete", fun_args = integer_to_list(length(DIP)),
+                                                 query     = DQ,
                                                  in_params = DIP, bind_params = DP,
-                                                 record = DR, map = DM}, QD4)
+                                                 record    = DR, map = DM}, QD4)
           end,
 
 
@@ -82,18 +82,18 @@ build_queries([{Key, T = #table{schema = S, name = N, query_dict = QD0, columns 
         UpdateFkeySql = build_update_fkey_sql(Schema, Name, T, FCols),
         {ok, UFQ, UFP, UFIP, UFR, UFM} = proto_crudl_parse:parse_query(RecordName, UpdateFkeySql, ColDict),
         CN = proto_crudl_utils:to_string(ConstraintName),
-        orddict:store(ConstraintName, #query{name     = "UPDATE_" ++ string:to_upper(CN),
-                                             fun_name = "update_" ++ string:to_lower(CN), fun_args = "1",
-                                             query    = UFQ,
+        orddict:store(ConstraintName, #query{name      = "UPDATE_" ++ string:to_upper(CN),
+                                             fun_name  = "update_" ++ string:to_lower(CN), fun_args = integer_to_list(length(UFIP)),
+                                             query     = UFQ,
                                              in_params = UFIP, bind_params = UFP,
-                                             record = UFR, map = UFM}, QD)
+                                             record    = UFR, map = UFM}, QD)
           end,
     QD6 = lists:foldl(Fun, QD5, T#table.relations),
 
     SelectLimitSql = build_select_with_limit_sql(Schema, Name, T),
     {ok, SLQ, SLP, SLIP, SLR, SLM} = proto_crudl_parse:parse_query(RecordName, SelectLimitSql, ColDict),
     QD7 = orddict:store("select_limit", #query{name     = "SELECT_LIMIT",
-                                               fun_name = "list", fun_args = integer_to_list(length(SLP)),
+                                               fun_name = "list", fun_args = integer_to_list(length(SLIP)),
                                                query    = SLQ,
                                                in_params = SLIP, bind_params = SLP,
                                                record = SLR, map = SLM}, QD6),

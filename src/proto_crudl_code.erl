@@ -192,8 +192,7 @@ generate_exports(RecordsOrMaps, FullPath, Table = #table{query_dict = QD}) ->
             ok;
         Mappings ->
             ok = file:write_file(FullPath, ",\n", [append]),
-            ok = file:write_file(FullPath, lists:join(",\n", Mappings), [append]),
-            ok = file:write_file(FullPath, ",\n", [append])
+            ok = file:write_file(FullPath, lists:join(",\n", Mappings), [append])
     end,
 
     ColumnList = orddict:to_list(Table#table.columns),
@@ -206,7 +205,9 @@ generate_exports(RecordsOrMaps, FullPath, Table = #table{query_dict = QD}) ->
                          "         " ++ proto_crudl_utils:to_string(Column#column.name) ++ "_value/1" | Acc]
                 end
           end,
-    [ok = file:write_file(FullPath, Line, [append]) || Line <- lists:join(",\n", lists:foldl(Fun1, [], ColumnList))],
+    Lines = lists:join(",\n", lists:foldl(Fun1, [], ColumnList)),
+    case length(Lines) of L when L > 0 -> ok = file:write_file(FullPath, ",\n", [append]); _ -> ok end,
+    [ok = file:write_file(FullPath, Line, [append]) || Line <- Lines],
 
     case Table#table.has_dates of
         true ->

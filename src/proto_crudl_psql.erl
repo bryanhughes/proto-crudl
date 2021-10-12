@@ -960,9 +960,9 @@ create_defaults_record_fun(#table{query_dict = QD}, RecordName) ->
 read_fun(undefined, #table{query_dict = QD}) ->
     Query = orddict:fetch("select", QD),
     Name = Query#query.name,
-    Map = Query#query.map,
     Params = lists:join(", ", Query#query.bind_params),
-    "read(M = " ++ Map ++ ") when is_map(M) ->\n"
+    InParams = lists:join(", ", Query#query.in_params),
+    "read(" ++ InParams ++ ") ->\n"
     "    Params = [" ++ Params ++ "],\n"
     "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := select, num_rows := 0} ->\n"
@@ -976,9 +976,9 @@ read_fun(undefined, #table{query_dict = QD}) ->
 read_fun(RecordName, #table{query_dict = QD}) ->
     Query = orddict:fetch("select", QD),
     Name = Query#query.name,
-    Record = Query#query.record,
     Params = lists:join(", ", Query#query.bind_params),
-    "read(R = " ++ Record ++ ") when is_record(R, " ++ RecordName ++ ") ->\n"
+    InParams = lists:join(", ", Query#query.in_params),
+    "read(" ++ InParams ++ ") ->\n"
     "    Params = [" ++ Params ++ "],\n"
     "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := select, num_rows := 0} ->\n"
@@ -1030,9 +1030,9 @@ update_fun(RecordName, #table{query_dict = QD}) ->
 update_fkeys_fun(undefined, #foreign_relation{constraint_name = CN}, #table{query_dict = QD}) ->
     Query = orddict:fetch(CN, QD),
     Name = Query#query.name,
-    Map = Query#query.map,
     Params = lists:join(", ", Query#query.bind_params),
-    "update_" ++ string:to_lower(binary_to_list(CN)) ++ "(M = " ++ Map ++ ") when is_map(M) ->\n" ++
+    InParams = lists:join(", ", Query#query.in_params),
+    "update_" ++ string:to_lower(binary_to_list(CN)) ++ "(" ++ InParams ++ ") ->\n" ++
     "    Params = [" ++ Params ++ "],\n"
     "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := update, num_rows := 0} ->\n"
@@ -1042,15 +1042,13 @@ update_fkeys_fun(undefined, #foreign_relation{constraint_name = CN}, #table{quer
     "        {error, Reason} ->\n"
     "            logger:error(\"Failed to update. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
     "            {error, Reason}\n"
-    "    end;\n"
-    "update_" ++ binary_to_list(CN) ++ "(_M) ->\n"
-    "    {error, invalid_map}.\n\n";
+    "    end.\n\n";
 update_fkeys_fun(RecordName, #foreign_relation{constraint_name = CN}, #table{query_dict = QD}) ->
     Query = orddict:fetch(CN, QD),
     Name = Query#query.name,
-    Record = Query#query.record,
     Params = lists:join(", ", Query#query.bind_params),
-    "update_" ++ string:to_lower(binary_to_list(CN)) ++ "(R = " ++ Record ++ ") when is_record(R, " ++ RecordName ++ ") ->\n" ++
+    InParams = lists:join(", ", Query#query.in_params),
+    "update_" ++ string:to_lower(binary_to_list(CN)) ++ "(" ++ InParams ++ ") ->\n" ++
     "    Params = [" ++ Params ++ "],\n"
     "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := update, num_rows := 0} ->\n"
@@ -1060,17 +1058,15 @@ update_fkeys_fun(RecordName, #foreign_relation{constraint_name = CN}, #table{que
     "        {error, Reason} ->\n"
     "            logger:error(\"Failed to update. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
     "            {error, Reason}\n"
-    "    end;\n"
-    "update_" ++ binary_to_list(CN) ++ "(_M) ->\n"
-    "    {error, invalid_record}.\n\n".
+    "    end.\n\n".
 
 -spec delete_fun(string() | undefined, #table{}) -> string().
 delete_fun(undefined, #table{query_dict = QD}) ->
     Query = orddict:fetch("delete", QD),
     Name = Query#query.name,
-    Map = Query#query.map,
     Params = lists:join(", ", Query#query.bind_params),
-    "delete(M = " ++ Map ++ ") when is_map(M) ->\n"
+    InParams = lists:join(", ", Query#query.in_params),
+    "delete(" ++ InParams ++ ") ->\n"
     "    Params = [" ++ Params ++ "],\n"
     "    case pgo:query(?" ++ Name ++ ", Params) of\n"
     "        #{command := delete, num_rows := 0} ->\n"
@@ -1080,15 +1076,13 @@ delete_fun(undefined, #table{query_dict = QD}) ->
     "        {error, Reason} ->\n"
     "            logger:error(\"Failed to delete. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
     "            {error, Reason}\n"
-    "    end;\n"
-    "delete(_M) ->\n"
-    "    {error, invalid_map}.\n\n";
-delete_fun(RecordName, #table{query_dict = QD}) ->
+    "    end.\n\n";
+delete_fun(_RecordName, #table{query_dict = QD}) ->
     Query = orddict:fetch("delete", QD),
     Name = Query#query.name,
-    Record = Query#query.record,
     Params = lists:join(", ", Query#query.bind_params),
-    "delete(R = " ++ Record ++ ") when is_record(R, " ++ RecordName ++ ") ->\n"
+    InParams = lists:join(", ", Query#query.in_params),
+    "delete(" ++ InParams ++ ") ->\n"
     "    Params = [" ++ Params ++ "],\n"
     "    case pgo:query(?" ++ Name ++ ", Params) of\n"
     "        #{command := delete, num_rows := 0} ->\n"
@@ -1098,9 +1092,7 @@ delete_fun(RecordName, #table{query_dict = QD}) ->
     "        {error, Reason} ->\n"
     "            logger:error(\"Failed to delete. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
     "            {error, Reason}\n"
-    "    end;\n"
-    "delete(_M) ->\n"
-    "    {error, invalid_record}.\n\n".
+    "    end.\n\n".
 
 -spec limit_fun(string() | undefined) -> string().
 limit_fun(undefined) ->
