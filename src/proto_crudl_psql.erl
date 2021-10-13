@@ -252,6 +252,7 @@ process_columns(Table, VersionColumn, [{CN, OP, DT, UN, CD, IN, IP, IS} | Rest])
     PkList = case IP of true -> [CN | Table#table.pkey_list]; _ -> Table#table.pkey_list end,
     Sequence = case IS of true -> CN; _ -> Table#table.sequence end,
     HasTimestamps = Table#table.has_timestamps or is_timestamp(UN),
+    HasArrays = Table#table.has_arrays or is_array(DT),
     HasDates = Table#table.has_dates or is_date(UN),
     io:format("    Column: ~p  ~p  ~p ... (default: ~p, is_pkey: ~p, is_seq: ~p, is_nullable: ~p, is_version: ~p, has_timestamps: ~p)~n",
               [CN, DT, UN, CD, IP, IS, IN0, IsVersion, HasTimestamps]),
@@ -271,6 +272,7 @@ process_columns(Table, VersionColumn, [{CN, OP, DT, UN, CD, IN, IP, IS} | Rest])
     process_columns(Table#table{columns        = ColDict,
                                 has_timestamps = HasTimestamps,
                                 has_dates      = HasDates,
+                                has_arrays     = HasArrays,
                                 version_column = VersionColumn,
                                 select_list    = [CN | Table#table.select_list],
                                 update_list    = UpdateList,
@@ -742,6 +744,11 @@ is_timestamp(_) ->
 is_date(<<"date">>) ->
     true;
 is_date(_) ->
+    false.
+
+is_array(<<"ARRAY">>) ->
+    true;
+is_array(_) ->
     false.
 
 

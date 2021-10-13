@@ -209,6 +209,13 @@ generate_exports(RecordsOrMaps, FullPath, Table = #table{query_dict = QD}) ->
     case length(Lines) of L when L > 0 -> ok = file:write_file(FullPath, ",\n", [append]); _ -> ok end,
     [ok = file:write_file(FullPath, Line, [append]) || Line <- Lines],
 
+    case Table#table.has_arrays of
+        true ->
+            ok = file:write_file(FullPath, ",\n         ensure_array/1", [append]);
+        _ ->
+            ok
+    end,
+
     case Table#table.has_dates of
         true ->
             ok = file:write_file(FullPath, ",\n         date_encode/1,\n"

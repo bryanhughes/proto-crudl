@@ -108,6 +108,7 @@
                 has_valid_values = false :: boolean(),
                 has_dates = false :: boolean(),
                 has_timestamps = false :: boolean(),
+                has_arrays = false :: boolean(),
                 version_column = <<>> :: binary(),
                 sequence :: binary() | undefined,
                 select_list = [] :: [binary()],

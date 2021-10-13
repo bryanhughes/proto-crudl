@@ -22,6 +22,7 @@ generate_functions(postgres, FullPath, UsePackage, T = #table{schema = S, name =
                      false ->
                          "'" ++ proto_crudl_utils:camel_case(N) ++ "'"
                  end,
+    ok = file:write_file(FullPath, array_support(orddict:to_list(T#table.columns)), [append]),
     ok = file:write_file(FullPath, ts_support(orddict:to_list(T#table.columns)), [append]),
     ok = file:write_file(FullPath, date_support(orddict:to_list(T#table.columns)), [append]),
     ok = file:write_file(FullPath, to_proto(T), [append]),
@@ -47,6 +48,21 @@ generate_functions(postgres, FullPath, UsePackage, T = #table{schema = S, name =
 generate_functions(Provider, _FullPath, _UsePackage, _Table) ->
     io:format("ERROR: Provider ~p is not supported yet.~n", [Provider]),
     erlang:error(provider_not_supported).
+
+-spec array_support([{binary(), #column{}}]) -> string().
+array_support([]) ->
+    "";
+array_support([{_Key, #column{data_type = <<"ARRAY">>}} | _Rest]) ->
+    "ensure_array(undefined) ->
+        [];
+    ensure_array(null) ->
+        [];
+    ensure_array(V) when is_list(V) ->
+        V;
+    ensure_array(_V) ->
+        erlang:error(list_expected).\n\n";
+array_support([_Key | Rest]) ->
+    array_support(Rest).
 
 -spec ts_support([{binary(), #column{}}]) -> string().
 ts_support([]) ->
@@ -183,6 +199,11 @@ table_row_decoder(#table{columns = ColDict, schema = S, name = N}) ->
 
 decode_columns([], Acc) ->
     lists:reverse(Acc);
+decode_columns([{_Key, #column{name = N, data_type = <<"ARRAY">>}} | Rest], Acc) ->
+    Ln = proto_crudl_utils:to_list(N),
+    Code = ["                " ++ Ln ++ " ->\n" ++
+            "                    [case maps:get(Field, Row, []) of null -> []; V -> V end | Acc];\n" | Acc],
+    decode_columns(Rest, Code);
 decode_columns([{_Key, #column{name = N, valid_values = V}} | Rest], Acc) when length(V) > 0 ->
     Ln = proto_crudl_utils:to_list(N),
     Cc = proto_crudl_utils:camel_case(N),

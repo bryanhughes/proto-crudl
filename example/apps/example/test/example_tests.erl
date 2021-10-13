@@ -415,7 +415,7 @@ crudl_proto_records_test() ->
 
     ?assertEqual({{2021, 2, 23}, {10, 23, 23.5}}, FromProto#'test_schema.User'.updated_on),
     ?assertEqual({2021, 2, 23}, FromProto#'test_schema.User'.due_date),
-    
+
     {ok, 1, []} = test_schema_user_db:delete_user_by_email(<<"foo@gmail.com">>),
     notfound = test_schema_user_db:read(BryanId),
 
@@ -473,8 +473,10 @@ update_fkey_record_test() ->
     ?assertEqual(?LAT_0, Bryan#'test_schema.User'.lat),
     ?assertEqual(?LON_0, Bryan#'test_schema.User'.lon),
 
-    {ok, Tom} = test_schema_user_db:create(<<"Tom">>, undefined, <<"tombagby@gmail.com">>, undefined, [100, 200, 300],
+    {ok, Tom} = test_schema_user_db:create(<<"Tom">>, undefined, <<"tombagby@gmail.com">>, undefined, undefined,
                                            '_123FUN', 100, undefined, undefined, undefined, ?LON_1, ?LAT_1),
+    % The generated code will make sure the undefined and null are empty lists
+    ?assertEqual([], Tom#'test_schema.User'.my_array),
 
     ?LOG_INFO("Tom (before update)=~p", [Tom]),
 

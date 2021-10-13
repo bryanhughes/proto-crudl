@@ -61,6 +61,8 @@ do_parse_placeholders({ok, Pos}, PosDict, _BindVar, ColDict, RecordName, Rest, F
     NewQuery = string:replace(Query, "$" ++ proto_crudl_utils:to_string(FN), "$" ++ integer_to_list(Pos)),
     parse_placeholders(ColDict, RecordName, Rest, PosDict, BAcc, IAcc, RAcc, MAcc, Cnt, NewQuery).
 
+fixup_param_mapping(FN, #column{data_type = <<"ARRAY">>}) ->
+    "ensure_array(" ++ proto_crudl_utils:camel_case(FN) ++ ")";
 fixup_param_mapping(FN, #column{valid_values = VV}) when length(VV) > 0 ->
     proto_crudl_utils:to_string(FN) ++ "_value(" ++ proto_crudl_utils:camel_case(FN) ++ ")";
 fixup_param_mapping(FN, #column{udt_name = Udt}) ->
