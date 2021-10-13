@@ -147,6 +147,21 @@ Currently, I have not had time to write a github pull script for the `escript` e
 artifact: `_build/default/bin/proto_crudl`. At this time I manually copy the file to my project. So not build friendly
 just yet.
 
+## Mapping to Protobuffers
+This is important to read. One of the most significant disjointed aspects of using Erlang records that are mapped to 
+Protobuffers is the how `timestamps` are supported. For protobuffers, there is only a `timestamp` data type while in 
+Erlang, and relational databases, there is support for multiple datetime data types including `date` and `timestamp`.
+
+`proto_crudl` is a framework that generates Erlang code the maps between a relational database, Erlang
+maps or records, and protobuffers, we make a conscious choice to err on the side of native support. If you are 
+using the default `gpb` generated records, it presumes that all datetime fields are timestamps. This means that 
+`proto_crudl` will treat datetimes as native Erlang data types (i.e. `{{Year, Month, Day}, {Hour, Minute, Seconds}}` and 
+`{Year, Month, Day}`). When serializing a protobuffer across the wire with `gpb` you must call `to_proto/1` and 
+`from_proto/1` to encode and decode to a `google.protobuf.Timestamp`.
+
+There are built-in helper functions called `ts_encode/1`, `ts_decode/1`, `date_encode/1`, and `date_decode/1` when 
+operating on the record values natively in Erlang.
+
 ## proto_crudl.config
 You will want to look at [example/config/proto_crudl.config](example/config/proto_crudl.config) as a guide
 for your own config. It gives a complete example with inline documentation of the current functionality of the tool.
@@ -323,16 +338,3 @@ Because of the subtle misalignment between libraries, using maps requires the us
 to correctly convert the serialized protobuffers as maps as input values to queries. It also means that the developer
 has to handle `null` values from the `pgo` and ultimately `proto_crutl` and remember to convert to `undefined` when
 serializing. Maps are very flexible, but also very problematic.
-
-## Other Notes
-`proto-crudl` generates code to support inserting records with database defaults. It is important to understand that
-the current state of the tool means there are two create functions. One for a straight insert/create, and one for
-a record excluding all the default values. It is all defaults or nothing. To create a record with default values
-you much new the map or the record by calling
-
-    User = test_schema_user:new_default(),
-    test_schema_user:create(User),
-
-Because aware that if your table has multiple columns with default values set, and you try to create a record
-with a default value set, you will get a matching error as `proto-crudl` uses the atom `default` to match the function
-on.

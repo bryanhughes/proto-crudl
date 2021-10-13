@@ -244,7 +244,6 @@ crudl_proto_records_test() ->
             erlang:error(Reason)
     end,
 
-
     % Do a good create
     {ok, Bryan} = test_schema_user_db:create(<<"Bryan">>, <<"Hughes">>, <<"hughesb@gmail.com">>, undefined,
                                              [1, 2, 3], 'BIG_SHOT', 100, {{2021, 2, 23}, {10, 23, 23.5}}, {2021, 2, 23},
@@ -257,8 +256,15 @@ crudl_proto_records_test() ->
     ?assertEqual('BIG_SHOT', Bryan#'test_schema.User'.user_type),
     ?assertEqual('living', Bryan#'test_schema.User'.user_state),
     ?assertEqual(0, Bryan#'test_schema.User'.version),
-    ?assertEqual({{2021, 2, 23}, {10, 23, 23.5}}, Bryan#'test_schema.User'.updated_on),
-    ?assertEqual({2021, 2, 23}, Bryan#'test_schema.User'.due_date),
+    ?assertEqual({'google.protobuf.Timestamp',1614075803,500000}, Bryan#'test_schema.User'.updated_on),
+    ?assertEqual({'google.protobuf.Timestamp',1614038400,0}, Bryan#'test_schema.User'.due_date),
+
+    Decoded0 = test_schema_user_db:ts_decode(Bryan#'test_schema.User'.updated_on),
+    ?LOG_INFO("Decoded0=~p", [Decoded0]),
+    ?assertEqual({{2021, 2, 23}, {10, 23, 23.5}}, Decoded0),
+
+    Decoded1 = test_schema_user_db:date_decode(Bryan#'test_schema.User'.due_date),
+    ?assertEqual({2021, 2, 23}, Decoded1),
 
     ?LOG_INFO("created_on=~p", [Bryan#'test_schema.User'.created_on]),
 
@@ -391,8 +397,8 @@ crudl_proto_records_test() ->
     % while protobuffers are treated as timestamps as {seconds, nanoseconds}. Call the helper functions to_proto/1 and
     % from_proto/1 to convert datetime to timestamps.
 
-    ?assertEqual({{2021, 2, 23}, {10, 23, 23.5}}, Bryan9#'test_schema.User'.updated_on),
-    ?assertEqual({2021, 2, 23}, Bryan9#'test_schema.User'.due_date),
+    ?assertEqual({'google.protobuf.Timestamp',1614075803,500000}, Bryan9#'test_schema.User'.updated_on),
+    ?assertEqual({'google.protobuf.Timestamp',1614038400,0}, Bryan9#'test_schema.User'.due_date),
 
     ToProto = test_schema_user_db:to_proto(Bryan9),
     ?LOG_INFO("ToProto=~0p", [ToProto]),
@@ -409,9 +415,7 @@ crudl_proto_records_test() ->
 
     ?assertEqual({{2021, 2, 23}, {10, 23, 23.5}}, FromProto#'test_schema.User'.updated_on),
     ?assertEqual({2021, 2, 23}, FromProto#'test_schema.User'.due_date),
-
-    ?assertEqual(Bryan9, FromProto),
-
+    
     {ok, 1, []} = test_schema_user_db:delete_user_by_email(<<"foo@gmail.com">>),
     notfound = test_schema_user_db:read(BryanId),
 

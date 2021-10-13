@@ -92,7 +92,7 @@ date_support([{_Key, #column{udt_name = UN}} | Rest]) ->
         nomatch ->
             date_support(Rest);
         _ ->
-            "date_encode(Date={_, _, _}) ->\n"
+            "date_encode(Date={Year, _, _}) when is_number(Year) ->\n"
             "    Secs = calendar:datetime_to_gregorian_seconds({Date, {0,0,0}}) - 62167219200,\n"
             "    #'google.protobuf.Timestamp'{seconds = Secs, nanos = 0};\n"
             "date_encode(null) ->\n"
@@ -148,6 +148,20 @@ custom_row_decoders(SchemaName, [_Head | Rest], Acc) when is_list(SchemaName) ->
 
 decode_resultset([], Acc) ->
     lists:reverse(Acc);
+decode_resultset([#bind_var{name = Name, data_type = <<116, 105, 109, 101, 115, 116, 97, 109, 112, _Rest/binary>>} | Rest], Acc) ->
+    LowerName = proto_crudl_utils:to_string(Name),
+    CamelCase = proto_crudl_utils:camel_case(Name),
+    Code = "                " ++ LowerName ++ " ->\n" ++
+           "                    " ++ CamelCase ++ " = maps:get(" ++ LowerName ++ ", Row, undefined),\n" ++
+           "                    [ts_encode(" ++ CamelCase ++ ") | Acc];\n",
+    decode_resultset(Rest, [Code | Acc]);
+decode_resultset([#bind_var{name = Name, data_type = <<"date">>} | Rest], Acc) ->
+    LowerName = proto_crudl_utils:to_string(Name),
+    CamelCase = proto_crudl_utils:camel_case(Name),
+    Code = "                " ++ LowerName ++ " ->\n" ++
+           "                    " ++ CamelCase ++ " = maps:get(" ++ LowerName ++ ", Row, undefined),\n" ++
+           "                    [date_encode(" ++ CamelCase ++ ") | Acc];\n",
+    decode_resultset(Rest, [Code | Acc]);
 decode_resultset([_Head | Rest], Acc) ->
     decode_resultset(Rest, Acc).
 
@@ -175,6 +189,20 @@ decode_columns([{_Key, #column{name = N, valid_values = V}} | Rest], Acc) when l
     Code = ["                " ++ Ln ++ " ->\n" ++
             "                    " ++ Cc ++ " = maps:get(" ++ Ln ++ ", Row, undefined),\n" ++
             "                    [" ++ Ln ++ "_enum(" ++ Cc ++ ") | Acc];\n" | Acc],
+    decode_columns(Rest, Code);
+decode_columns([{_Key, #column{name = N, udt_name = <<116, 105, 109, 101, 115, 116, 97, 109, 112, _Rest/binary>>}} | Rest], Acc) ->
+    Ln = proto_crudl_utils:to_list(N),
+    Cc = proto_crudl_utils:camel_case(N),
+    Code = ["                " ++ Ln ++ " ->\n" ++
+            "                    " ++ Cc ++ " = maps:get(" ++ Ln ++ ", Row, undefined),\n" ++
+            "                    [ts_encode(" ++ Cc ++ ") | Acc];\n" | Acc],
+    decode_columns(Rest, Code);
+decode_columns([{_Key, #column{name = N, udt_name = <<"date">>}} | Rest], Acc) ->
+    Ln = proto_crudl_utils:to_list(N),
+    Cc = proto_crudl_utils:camel_case(N),
+    Code = ["                " ++ Ln ++ " ->\n" ++
+            "                    " ++ Cc ++ " = maps:get(" ++ Ln ++ ", Row, undefined),\n" ++
+            "                    [date_encode(" ++ Cc ++ ") | Acc];\n" | Acc],
     decode_columns(Rest, Code);
 decode_columns([_Head | Rest], Acc) ->
     decode_columns(Rest, Acc).

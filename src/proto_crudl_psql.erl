@@ -15,7 +15,7 @@
 -export([read_database/2, is_int64/1, is_int32/1, is_sql_float/1, read_columns/3, read_table/4,
          sql_to_proto_datatype/1, count_params/1, limit_fun/1, create_fun/2,
          default_value/1, read_fun/2, update_fun/2, delete_fun/2, mappings_fun/2, list_lookup_fun/2,
-         update_fkeys_fun/3, sql_to_erlang_datatype/1, is_timestamp/1, random_value/1]).
+         update_fkeys_fun/3, sql_to_erlang_datatype/1, is_timestamp/1, random_value/1, is_date/1]).
 
 -define(READ_TABLES, "SELECT
         t.table_schema,

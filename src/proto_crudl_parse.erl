@@ -64,11 +64,17 @@ do_parse_placeholders({ok, Pos}, PosDict, _BindVar, ColDict, RecordName, Rest, F
 fixup_param_mapping(FN, #column{valid_values = VV}) when length(VV) > 0 ->
     proto_crudl_utils:to_string(FN) ++ "_value(" ++ proto_crudl_utils:camel_case(FN) ++ ")";
 fixup_param_mapping(FN, #column{udt_name = Udt}) ->
+    Name = proto_crudl_utils:camel_case(FN),
     case proto_crudl_psql:is_timestamp(Udt) of
         true ->
-            "ts_decode(" ++ proto_crudl_utils:camel_case(FN) ++ ")";
+            "ts_decode(" ++ Name ++ ")";
         false ->
-            proto_crudl_utils:camel_case(FN)
+            case proto_crudl_psql:is_date(Udt) of
+                true ->
+                    "date_decode(" ++ Name ++ ")";
+                false ->
+                    Name
+            end
     end;
 fixup_param_mapping(FN, _) ->
     proto_crudl_utils:camel_case(FN).
