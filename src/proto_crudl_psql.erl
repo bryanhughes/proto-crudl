@@ -1127,11 +1127,11 @@ list_lookup_fun(_RecordName, _T, [], Acc) ->
     Acc;
 list_lookup_fun(undefined, T = #table{query_dict = QD}, [#index{is_list = true, name = N} | Rest], Acc) ->
     Query = orddict:fetch(N, QD),
-    Map = Query#query.map,
     Params = lists:join(", ", Query#query.bind_params),
+    InParams = lists:join(", ", Query#query.in_params),
     Name = proto_crudl_utils:to_string(N),
-    S = Name ++ "(M = " ++ Map ++ ", Limit, Offset) when is_map(M) ->\n"
-    "    Params = [" ++ Params ++ ", Limit, Offset],\n"
+    S = Name ++ "(" ++ InParams ++ ") ->\n"
+    "    Params = [" ++ Params ++ "],\n"
     "    case pgo:query(?" ++ string:to_upper(Name) ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := select, num_rows := NRows, rows := Rows} ->\n"
     "            {ok, NRows, Rows};\n"
@@ -1141,10 +1141,10 @@ list_lookup_fun(undefined, T = #table{query_dict = QD}, [#index{is_list = true, 
     list_lookup_fun(undefined, T, Rest, [S | Acc]);
 list_lookup_fun(undefined, T = #table{query_dict = QD}, [#index{is_lookup = true, name = N} | Rest], Acc) ->
     Query = orddict:fetch(N, QD),
-    Map = Query#query.map,
     Params = lists:join(", ", Query#query.bind_params),
+    InParams = lists:join(", ", Query#query.in_params),
     Name = proto_crudl_utils:to_string(N),
-    S = Name ++ "(M = " ++ Map ++ ") when is_map(M) ->\n"
+    S = Name ++ "(" ++ InParams ++ " ->\n"
     "    Params = [" ++ Params ++ "],\n"
     "    case pgo:query(?" ++ string:to_upper(Name) ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := select, num_rows := NRows, rows := Rows} ->\n"
@@ -1155,11 +1155,11 @@ list_lookup_fun(undefined, T = #table{query_dict = QD}, [#index{is_lookup = true
     list_lookup_fun(undefined, T, Rest, [S | Acc]);
 list_lookup_fun(RecordName, T = #table{query_dict = QD}, [#index{is_list = true, name = N} | Rest], Acc) ->
     Query = orddict:fetch(N, QD),
-    Record = Query#query.record,
     Params = lists:join(", ", Query#query.bind_params),
+    InParams = lists:join(", ", Query#query.in_params),
     Name = proto_crudl_utils:to_string(N),
-    S = Name ++ "(R = " ++ Record ++ ", Limit, Offset) when is_record(R, " ++ RecordName ++ ") ->\n"
-        "    Params = [" ++ Params ++ ", Limit, Offset],\n"
+    S = Name ++ "(" ++ InParams ++ ") ->\n"
+        "    Params = [" ++ Params ++ "],\n"
         "    case pgo:query(?" ++ string:to_upper(Name) ++ ", Params, #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
         "        #{command := select, num_rows := NRows, rows := Rows} ->\n"
         "            {ok, NRows, Rows};\n"
@@ -1169,10 +1169,10 @@ list_lookup_fun(RecordName, T = #table{query_dict = QD}, [#index{is_list = true,
     list_lookup_fun(RecordName, T, Rest, [S | Acc]);
 list_lookup_fun(RecordName, T = #table{query_dict = QD}, [#index{is_lookup = true, name = N} | Rest], Acc) ->
     Query = orddict:fetch(N, QD),
-    Record = Query#query.record,
     Params = lists:join(", ", Query#query.bind_params),
+    InParams = lists:join(", ", Query#query.in_params),
     Name = proto_crudl_utils:to_string(N),
-    S = Name ++ "(R = " ++ Record ++ ") when is_record(R, " ++ RecordName ++ ") ->\n"
+    S = Name ++ "(" ++ InParams ++ ") ->\n"
         "    Params = [" ++ Params ++ "],\n"
         "    case pgo:query(?" ++ string:to_upper(Name) ++ ", Params, #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
         "        #{command := select, num_rows := NRows, rows := Rows} ->\n"

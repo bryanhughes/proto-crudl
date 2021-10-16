@@ -121,7 +121,7 @@ crudl_proto_maps_test() ->
     {error, invalid_map} = test_schema_user_db:update(#{user_id => 0}),
 
     ?LOG_INFO("Looking up..."),
-    {ok, 1, [Bryan5]} = test_schema_user_db:lookup_email(#{email => <<"foo@gmail.com">>}),
+    {ok, 1, [Bryan5]} = test_schema_user_db:lookup_email(<<"foo@gmail.com">>),
 
     ?LOG_INFO("Listing users..."),
     {ok, 2, Users} = test_schema_user_db:list(10, 0),
@@ -130,6 +130,10 @@ crudl_proto_maps_test() ->
     {ok, 1, _} = test_schema_user_db:list(1, 0),
     {ok, 1, _} = test_schema_user_db:list(1, 1),
     {ok, 0, _} = test_schema_user_db:list(10, 2),
+
+    ?LOG_INFO("Listing users by user_type enabled..."),
+    {ok, 1, Users1} = test_schema_user_db:list_by_user_type_enabled(true, 'BIG_SHOT', 10, 0),
+    ?LOG_INFO("Users1=~p", [Users1]),
 
     ?LOG_INFO("Exercising custom functions..."),
     {ok, 1, []} = test_schema_user_db:disable_user(<<"foo@gmail.com">>),
@@ -330,7 +334,7 @@ crudl_proto_records_test() ->
     {error, invalid_record} = test_schema_user_db:update(#bad_record{badbadbad = 0}),
 
     ?LOG_INFO("Looking up..."),
-    {ok, 1, [Bryan5]} = test_schema_user_db:lookup_email(#'test_schema.User'{email = <<"foo@gmail.com">>}),
+    {ok, 1, [Bryan5]} = test_schema_user_db:lookup_email(<<"foo@gmail.com">>),
 
     ?LOG_INFO("Listing users..."),
     {ok, 2, Users} = test_schema_user_db:list(10, 0),
@@ -339,6 +343,10 @@ crudl_proto_records_test() ->
     {ok, 1, _} = test_schema_user_db:list(1, 0),
     {ok, 1, _} = test_schema_user_db:list(1, 1),
     {ok, 0, _} = test_schema_user_db:list(10, 2),
+
+    ?LOG_INFO("Listing users by user_type enabled..."),
+    {ok, 1, Users1} = test_schema_user_db:list_by_user_type_enabled(false, 'BIG_SHOT', 10, 0),
+    ?LOG_INFO("Users1=~p", [Users1]),
 
     ?LOG_INFO("Exercising custom functions..."),
     {ok, 1, []} = test_schema_user_db:disable_user(<<"foo@gmail.com">>),

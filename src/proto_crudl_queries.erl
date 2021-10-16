@@ -423,15 +423,16 @@ build_lookup_list_query(Table = #table{columns = ColDict}, [Index = #index{is_li
     LookupName = proto_crudl_utils:to_string(Index#index.name),
     LookupSql = build_lookup_list_sql(Table, Index),
     {ok, Q, P, IP, R, M} = proto_crudl_parse:parse_query(RecordName, LookupSql, ColDict),
+    Args = length(IP),
     Query = #query{name     = string:to_upper(LookupName),
                    fun_name = string:to_lower(LookupName),
-                   fun_args = case List of true -> "3"; _ -> "1" end,
+                   fun_args = integer_to_list(Args),
                    query    = Q, record = R, map = M, bind_params = P, in_params = IP},
     build_lookup_list_query(Table, Rest, orddict:store(Index#index.name, Query, QueryDict));
 build_lookup_list_query(Table, [_Index | Rest], QueryDict) ->
     build_lookup_list_query(Table, Rest, QueryDict).
 
-build_lookup_list_sql(Table, Index) ->
+build_lookup_list_sql(Table, Index = #index{is_lookup = IsLookup}) ->
     Schema = proto_crudl_utils:to_string(Index#index.table_schema),
     Name = proto_crudl_utils:to_string(Index#index.table_name),
     ColDict = Table#table.columns,
@@ -444,9 +445,11 @@ build_lookup_list_sql(Table, Index) ->
     Clause1 = build_select_clause(SelectList, ColDict, []),
     Clause2 = build_select_xforms(SelectList, ColDict, []),
 
+    LimitClause = case IsLookup of true -> ""; _ -> " LIMIT $limit OFFSET $offset" end,
+
     lists:flatten("SELECT " ++ lists:join(", ", lists:append(Clause1, Clause2)) ++
                   " FROM " ++ proto_crudl_utils:to_string(Schema) ++ "." ++ proto_crudl_utils:to_string(Name) ++
-                  " WHERE " ++ lists:join(" AND ", LookupColumns1)).
+                  " WHERE " ++ lists:join(" AND ", LookupColumns1) ++ LimitClause).
 
 
 %%
