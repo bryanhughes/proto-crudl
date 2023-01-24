@@ -3,6 +3,8 @@
 %%% @copyright (C) 2021, <COMPANY>
 %%% @doc
 %%%
+%%% NOTE: if you are using records ang GPB, then GPB will write out the include files
+%%%
 %%% @end
 %%% Created : 04. Feb 2021 12:18 PM
 %%%-------------------------------------------------------------------

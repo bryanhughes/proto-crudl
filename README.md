@@ -101,6 +101,7 @@ This helper script will allow you to rapidly drop and recreate your database. Th
 
 Build
 -----
+From the top level directory
 
     rebar3 escriptize
 

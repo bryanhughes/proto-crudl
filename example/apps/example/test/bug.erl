@@ -45,7 +45,8 @@ list_by_user_type_enabled(Enabled, UserType, Limit, Offset) ->
     Params = [Enabled, UserType, Limit, Offset],
     io:format("Query =~p\n", [?LIST_BY_USER_TYPE_ENABLED]),
     io:format("Params=~p\n", [Params]),
-    case pgo:query(?LIST_BY_USER_TYPE_ENABLED, Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}]}) of
+    case pgo:query(?LIST_BY_USER_TYPE_ENABLED, Params, #{decode_opts => [{return_rows_as_maps, true},
+                                                                         {column_name_as_atom, true}]}) of
         #{command := select, num_rows := NRows, rows := Rows} ->
             {ok, NRows, Rows};
         {error, Reason} ->
@@ -70,6 +71,7 @@ first_test() ->
     pgo:start_pool(default, #{pool_size => 10,
                               host => "127.0.0.1",
                               database => "proto_crudl",
+                              port => 5432,
                               user => "proto_crudl",
                               password => "proto_crudl"}),
     ok.

@@ -158,8 +158,10 @@ read_schemas(C, Generator, [Schema | Rest], TablesDict) ->
     Options = proplists:get_value(options, Generator, []),
     VersionColumn = proto_crudl_utils:to_binary(proplists:get_value(version_column, Options, <<>>)),
     logger:info("Generator=~0p, Options=~0p, VersionCollumn=~p", [Generator, Options, VersionColumn]),
-    Excluded1 = [               case string:split(FQN, ".") of Parts when length(Parts) == 1 -> FQN; Parts ->
-        lists:nth(2, Parts) end || FQN <- Excluded],
+    Excluded1 = [case string:split(FQN, ".") of Parts when
+                     length(Parts) == 1 -> FQN;
+                     Parts -> lists:nth(2, Parts)
+                 end || FQN <- Excluded],
     ExcludedTables1 = ["'" ++ Table ++ "'" || Table <- case Excluded1 of [] -> ["_"]; _ -> Excluded1 end],
     ExcludedTables2 = lists:flatten(lists:join(",", ExcludedTables1)),
 
