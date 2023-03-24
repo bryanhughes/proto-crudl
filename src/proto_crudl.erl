@@ -36,7 +36,13 @@ main(Args = [ConfigFile]) ->
             ProtoConfig = proplists:get_value(proto, Terms),
 
             % TODO: Write a function to inspect the rebar.config gpb_opts to make sure they are not mismatched
-            {ok, Conn} = start_provider(ProviderConfig),
+            Conn = case start_provider(ProviderConfig) of
+                {ok, Conn0} ->
+                    Conn0;
+                Reason0 ->
+                    io:format("Failed to start provider. Reason=~p~n", [Reason0]),
+                    erlang:exit(-1)
+            end,
 
             case read_database(Conn, ProviderConfig, GeneratorConfig) of
                 {ok, Database0} ->
