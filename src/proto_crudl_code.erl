@@ -12,7 +12,7 @@
 -author("bryan").
 
 %% API
--export([generate/3, build_enum_case/1, is_version/2]).
+-export([generate/3, build_enum_case/1, is_version/2, is_excluded/2]).
 
 -include("proto_crudl.hrl").
 
@@ -179,6 +179,7 @@ generate_exports(RecordsOrMaps, FullPath, Table = #table{query_dict = QD}) ->
         _ ->
             ok = file:write_file(FullPath, "-export([from_proto/1,\n"
                                            "         to_proto/1,\n"
+                                           "         to_proplist/1,\n"
                                            "         new/0,\n", [append])
     end,
 
@@ -239,6 +240,11 @@ generate_exports(RecordsOrMaps, FullPath, Table = #table{query_dict = QD}) ->
 is_version(ColDict, C) when is_binary(C) ->
     Column = orddict:fetch(C, ColDict),
     Column#column.is_version.
+
+-spec is_excluded(orddict:dict(), binary()) -> boolean().
+is_excluded(ColDict, C) when is_binary(C) ->
+    Column = orddict:fetch(C, ColDict),
+    Column#column.is_excluded.
 
 -spec build_enum_case(#table{}) -> string().
 build_enum_case(#table{columns = ColDict}) ->

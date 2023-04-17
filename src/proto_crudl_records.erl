@@ -28,6 +28,7 @@ generate_functions(postgres, FullPath, UsePackage, T = #table{schema = S, name =
     ok = file:write_file(FullPath, to_proto(T), [append]),
     ok = file:write_file(FullPath, from_proto(T), [append]),
     ok = file:write_file(FullPath, empty_record(RecordName, T), [append]),
+    ok = file:write_file(FullPath, to_proplist(RecordName, T), [append]),
     Schema = proto_crudl_utils:to_string(T#table.schema),
     ok = file:write_file(FullPath, raw_row_decoder(T), [append]),
     ok = file:write_file(FullPath, custom_row_decoders(Schema, orddict:to_list(T#table.mappings), []), [append]),
@@ -123,6 +124,15 @@ date_support([{_Key, #column{udt_name = UN}} | Rest]) ->
             "    V.\n\n"
     end.
 
+to_proplist(RecordName, Table) ->
+    "to_proplist(R) ->\n"
+    "    [" ++ build_proplist(RecordName, Table) ++ "].\n\n".
+
+build_proplist(RecordName, #table{columns = ColDict}) ->
+    L = ["{" ++ Col ++ ", R#" ++ RecordName ++ "." ++ Col ++ "}" || Col <-
+        [proto_crudl_utils:to_string(C) || C <- orddict:fetch_keys(ColDict),
+         proto_crudl_code:is_excluded(ColDict, C) == false]],
+    lists:flatten(lists:join(", ", L)).
 
 empty_record(RecordName, Table) ->
     "new() ->\n"
