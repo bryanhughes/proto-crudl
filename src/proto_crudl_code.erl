@@ -258,7 +258,6 @@ has_mapping_timestamps([{_Key, #custom_query{result_set = ResultSets}} | Rest]) 
           end,
     case lists:foldl(Fun, false, ResultSets) of
         true ->
-            io:format("======== has_mapping_timestamps TRUE : ResultSets=~p", [ResultSets]),
             true;
         false ->
             has_mapping_timestamps(Rest)
