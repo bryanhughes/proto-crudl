@@ -31,6 +31,7 @@ generate_functions(postgres, FullPath, Table) ->
         [] ->
             ok;
         _ ->
+            ok = file:write_file(FullPath, proto_crudl_psql:upsert_fun(undefined, Table), [append]),
             ok = file:write_file(FullPath, proto_crudl_psql:read_fun(undefined, Table), [append]),
             ok = file:write_file(FullPath, proto_crudl_psql:update_fun(undefined, Table), [append]),
             ok = file:write_file(FullPath, proto_crudl_psql:delete_fun(undefined, Table), [append])

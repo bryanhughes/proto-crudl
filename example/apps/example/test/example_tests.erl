@@ -234,6 +234,7 @@ custom_query_map_test() ->
 -else.
 
 -include("user_pb.hrl").
+-include("address_pb.hrl").
 -record(bad_record, {badbadbad}).
 
 crudl_proto_records_test() ->
@@ -501,6 +502,131 @@ update_fkey_record_test() ->
     ?LOG_INFO("Tom2 (after update #2)=~p", [Tom2]),
 
     ?assertEqual(Bryan#'test_schema.User'.user_id, Tom2#'test_schema.User'.aka_id),
+    ok.
+
+create_upsert_record_test() ->
+    ?LOG_INFO("====================== create_upsert_record_test() START ======================"),
+    ?LOG_INFO("Deleting from test_schema.address"),
+
+    Query = "DELETE FROM test_schema.address",
+    case pgo:query(Query, []) of
+        #{command := delete} ->
+            ok;
+        {error, Reason} ->
+            erlang:error(Reason)
+    end,
+
+    Address1 = <<"123 Main Street">>,
+    Address2 = <<"Suite 2">>,
+    City = <<"Small Town">>,
+    State = <<"CA">>,
+    Zip = <<"95462">>,
+    Country = <<"US">>,
+    Notes = <<"This was created">>,
+
+    {ok, CreateAddr} = test_schema_address_db:create(Address1, Address2, City, State, Country, Zip, Notes),
+
+    ?assertEqual(Address1, CreateAddr#'test_schema.Address'.address1),
+    ?assertEqual(Address2, CreateAddr#'test_schema.Address'.address2),
+    ?assertEqual(City, CreateAddr#'test_schema.Address'.city),
+    ?assertEqual(State, CreateAddr#'test_schema.Address'.state),
+    ?assertEqual(Zip, CreateAddr#'test_schema.Address'.postcode),
+    ?assertEqual(Country, CreateAddr#'test_schema.Address'.country),
+    ?assertEqual(Notes, CreateAddr#'test_schema.Address'.notes),
+
+    {ok, ReadAddr} = test_schema_address_db:read(CreateAddr#'test_schema.Address'.address_id),
+
+    ?assertEqual(Address1, ReadAddr#'test_schema.Address'.address1),
+    ?assertEqual(Address2, ReadAddr#'test_schema.Address'.address2),
+    ?assertEqual(City, ReadAddr#'test_schema.Address'.city),
+    ?assertEqual(State, ReadAddr#'test_schema.Address'.state),
+    ?assertEqual(Zip, ReadAddr#'test_schema.Address'.postcode),
+    ?assertEqual(Country, ReadAddr#'test_schema.Address'.country),
+    ?assertEqual(Notes, ReadAddr#'test_schema.Address'.notes),
+
+    UpdNotes = <<"This is an updated note on upsert">>,
+    {ok, UpsertAddr} = test_schema_address_db:upsert(Address1, Address2, City, State, Country, Zip, UpdNotes),
+
+    ?assertEqual(Address1, UpsertAddr#'test_schema.Address'.address1),
+    ?assertEqual(Address2, UpsertAddr#'test_schema.Address'.address2),
+    ?assertEqual(City, UpsertAddr#'test_schema.Address'.city),
+    ?assertEqual(State, UpsertAddr#'test_schema.Address'.state),
+    ?assertEqual(Zip, UpsertAddr#'test_schema.Address'.postcode),
+    ?assertEqual(Country, UpsertAddr#'test_schema.Address'.country),
+    ?assertEqual(UpdNotes, UpsertAddr#'test_schema.Address'.notes),
+
+    {ok, ReadAddr1} = test_schema_address_db:read(CreateAddr#'test_schema.Address'.address_id),
+
+    ?assertEqual(Address1, ReadAddr1#'test_schema.Address'.address1),
+    ?assertEqual(Address2, ReadAddr1#'test_schema.Address'.address2),
+    ?assertEqual(City, ReadAddr1#'test_schema.Address'.city),
+    ?assertEqual(State, ReadAddr1#'test_schema.Address'.state),
+    ?assertEqual(Zip, ReadAddr1#'test_schema.Address'.postcode),
+    ?assertEqual(Country, ReadAddr1#'test_schema.Address'.country),
+    ?assertEqual(UpdNotes, ReadAddr1#'test_schema.Address'.notes),
+
+    ok.
+
+upsert_upsert_record_test() ->
+    ?LOG_INFO("====================== create_upsert_record_test() START ======================"),
+    ?LOG_INFO("Deleting from test_schema.address"),
+
+    Query = "DELETE FROM test_schema.address",
+    case pgo:query(Query, []) of
+        #{command := delete} ->
+            ok;
+        {error, Reason} ->
+            erlang:error(Reason)
+    end,
+
+    Address1 = <<"321 Main Street">>,
+    Address2 = <<"Suite 23">>,
+    City = <<"Small Town">>,
+    State = <<"CA">>,
+    Zip = <<"95462">>,
+    Country = <<"US">>,
+    Notes = <<"This was created">>,
+
+    {ok, CreateAddr} = test_schema_address_db:upsert(Address1, Address2, City, State, Country, Zip, Notes),
+
+    ?assertEqual(Address1, CreateAddr#'test_schema.Address'.address1),
+    ?assertEqual(Address2, CreateAddr#'test_schema.Address'.address2),
+    ?assertEqual(City, CreateAddr#'test_schema.Address'.city),
+    ?assertEqual(State, CreateAddr#'test_schema.Address'.state),
+    ?assertEqual(Zip, CreateAddr#'test_schema.Address'.postcode),
+    ?assertEqual(Country, CreateAddr#'test_schema.Address'.country),
+    ?assertEqual(Notes, CreateAddr#'test_schema.Address'.notes),
+
+    {ok, ReadAddr} = test_schema_address_db:read(CreateAddr#'test_schema.Address'.address_id),
+
+    ?assertEqual(Address1, ReadAddr#'test_schema.Address'.address1),
+    ?assertEqual(Address2, ReadAddr#'test_schema.Address'.address2),
+    ?assertEqual(City, ReadAddr#'test_schema.Address'.city),
+    ?assertEqual(State, ReadAddr#'test_schema.Address'.state),
+    ?assertEqual(Zip, ReadAddr#'test_schema.Address'.postcode),
+    ?assertEqual(Country, ReadAddr#'test_schema.Address'.country),
+    ?assertEqual(Notes, ReadAddr#'test_schema.Address'.notes),
+
+    UpdNotes = <<"This is an updated note on upsert">>,
+    {ok, UpsertAddr} = test_schema_address_db:upsert(Address1, Address2, City, State, Country, Zip, UpdNotes),
+
+    ?assertEqual(Address1, UpsertAddr#'test_schema.Address'.address1),
+    ?assertEqual(Address2, UpsertAddr#'test_schema.Address'.address2),
+    ?assertEqual(City, UpsertAddr#'test_schema.Address'.city),
+    ?assertEqual(State, UpsertAddr#'test_schema.Address'.state),
+    ?assertEqual(Zip, UpsertAddr#'test_schema.Address'.postcode),
+    ?assertEqual(Country, UpsertAddr#'test_schema.Address'.country),
+    ?assertEqual(UpdNotes, UpsertAddr#'test_schema.Address'.notes),
+
+    {ok, ReadAddr1} = test_schema_address_db:read(CreateAddr#'test_schema.Address'.address_id),
+
+    ?assertEqual(Address1, ReadAddr1#'test_schema.Address'.address1),
+    ?assertEqual(Address2, ReadAddr1#'test_schema.Address'.address2),
+    ?assertEqual(City, ReadAddr1#'test_schema.Address'.city),
+    ?assertEqual(State, ReadAddr1#'test_schema.Address'.state),
+    ?assertEqual(Zip, ReadAddr1#'test_schema.Address'.postcode),
+    ?assertEqual(Country, ReadAddr1#'test_schema.Address'.country),
+    ?assertEqual(UpdNotes, ReadAddr1#'test_schema.Address'.notes),
 
     ok.
 

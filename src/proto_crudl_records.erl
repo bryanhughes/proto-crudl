@@ -39,6 +39,7 @@ generate_functions(postgres, FullPath, UsePackage, T = #table{schema = S, name =
         [] ->
             ok;
         _ ->
+            ok = file:write_file(FullPath, proto_crudl_psql:upsert_fun(RecordName, T), [append]),
             ok = file:write_file(FullPath, proto_crudl_psql:read_fun(RecordName, T), [append]),
             ok = file:write_file(FullPath, proto_crudl_psql:update_fun(RecordName, T), [append]),
             ok = file:write_file(FullPath, proto_crudl_psql:delete_fun(RecordName, T), [append])

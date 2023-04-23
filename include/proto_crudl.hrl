@@ -103,6 +103,7 @@
                 indexes = [] :: list(),                         % Keyed by index_name
                 relations = [] :: [#foreign_relation{}],
                 mappings = orddict:new() :: orddict:orddict(),  % Custom query mappings keyed by query_name
+                upsert_constraint = undefined :: string() | undefined,
                 last_ordinal = 0 :: non_neg_integer(),
                 statements = dict:new() :: dict:dict(),         % Keyed by clause_type
                 has_valid_values = false :: boolean(),

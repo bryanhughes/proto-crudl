@@ -85,7 +85,7 @@
 			</index>
 		</table>
 		<table name="part" >
-			<column name="part_id" type="uuid" jt="1111" mandatory="y" >
+			<column name="part_id" type="uuid" jt="102" mandatory="y" >
 				<defo><![CDATA[uuid_generate_v1mc()]]></defo>
 			</column>
 			<column name="part_name" type="varchar" length="100" jt="12" />
@@ -95,8 +95,8 @@
 		</table>
 		<table name="part_part" >
 			<comment><![CDATA[This table represents a many to many nested / recursive relationship. This should result in a repeated message.]]></comment>
-			<column name="part_id" type="uuid" jt="1111" mandatory="y" />
-			<column name="child_part_id" type="uuid" jt="1111" mandatory="y" />
+			<column name="part_id" type="uuid" jt="102" mandatory="y" />
+			<column name="child_part_id" type="uuid" jt="102" mandatory="y" />
 			<index name="pk_public_part_part" unique="PRIMARY_KEY" >
 				<column name="part_id" />
 				<column name="child_part_id" />
@@ -140,7 +140,7 @@
 
 #service: product]]></comment>
 			<column name="product_id" type="int" jt="4" mandatory="y" />
-			<column name="part_id" type="uuid" jt="1111" mandatory="y" />
+			<column name="part_id" type="uuid" jt="102" mandatory="y" />
 			<index name="pk_public_product_parts" unique="PRIMARY_KEY" >
 				<column name="product_id" />
 				<column name="part_id" />
@@ -167,6 +167,13 @@
 			<index name="pk_address_address_d" unique="PRIMARY_KEY" >
 				<column name="address_id" />
 			</index>
+			<index name="unq_address" unique="UNIQUE_KEY" >
+				<column name="address1" />
+				<column name="address2" />
+				<column name="city" />
+				<column name="state" />
+				<column name="postcode" />
+			</index>
 		</table>
 		<table name="foo" >
 			<column name="bar" type="varchar" jt="12" mandatory="y" />
@@ -180,14 +187,14 @@
 			<column name="bigint_col" type="bigint" jt="-5" />
 			<column name="bigint_array_col" type="bigint[]" jt="2003" />
 			<column name="big_serial_col" type="bigserial" jt="-5" />
-			<column name="bool_col" type="boolean" jt="-7" />
+			<column name="bool_col" type="boolean" jt="16" />
 			<column name="bytea_col" type="bytea" jt="-2" />
 			<column name="char_col" type="char" length="100" jt="1" />
 			<column name="cidr_col" type="cidr" jt="1111" />
 			<column name="date_col" type="date" jt="91" >
 				<defo><![CDATA[current_date]]></defo>
 			</column>
-			<column name="float8_col" type="float8" jt="6" />
+			<column name="float8_col" type="double precision" jt="3" />
 			<column name="inet_col" type="inet" jt="1111" />
 			<column name="integer_col" type="integer" jt="4" />
 			<column name="integer_array_col" type="integer[]" jt="2003" />
@@ -209,7 +216,7 @@
 			<column name="timestampz_col" type="timestamptz" jt="93" >
 				<defo><![CDATA[current_timestamp]]></defo>
 			</column>
-			<column name="uuid_col" type="uuid" jt="1111" />
+			<column name="uuid_col" type="uuid" jt="102" />
 			<column name="varchar_col" type="varchar" jt="12" />
 			<column name="varchar_length_col" type="varchar" length="256" jt="12" />
 			<column name="xml_col" type="xml" jt="2009" />
@@ -222,14 +229,14 @@
 			<column name="bigint_col" type="bigint" jt="-5" />
 			<column name="bigint_array_col" type="bigint[]" jt="2003" />
 			<column name="big_serial_col" type="bigserial" jt="-5" />
-			<column name="bool_col" type="boolean" jt="-7" />
+			<column name="bool_col" type="boolean" jt="16" />
 			<column name="bytea_col" type="bytea" jt="-2" />
 			<column name="char_col" type="char" length="100" jt="1" />
 			<column name="cidr_col" type="cidr" jt="1111" />
 			<column name="date_col" type="date" jt="91" >
 				<defo><![CDATA[current_date]]></defo>
 			</column>
-			<column name="float8_col" type="float8" jt="6" />
+			<column name="float8_col" type="double precision" jt="3" />
 			<column name="inet_col" type="inet" jt="1111" />
 			<column name="integer_col" type="integer" jt="4" />
 			<column name="integer_array_col" type="integer[]" jt="2003" />
@@ -251,7 +258,7 @@
 			<column name="timestampz_col" type="timestamptz" jt="93" >
 				<defo><![CDATA[current_timestamp]]></defo>
 			</column>
-			<column name="uuid_col" type="uuid" jt="1111" />
+			<column name="uuid_col" type="uuid" jt="102" />
 			<column name="varchar_col" type="varchar" jt="12" />
 			<column name="varchar_length_col" type="varchar" length="256" jt="12" />
 			<column name="xml_col" type="xml" jt="2009" />
@@ -279,10 +286,10 @@
 			<column name="email" type="varchar" jt="12" mandatory="y" />
 			<column name="geog" type="geography(point)" jt="1111" />
 			<column name="pword_hash" type="bytea" jt="-2" />
-			<column name="user_token" type="uuid" jt="1111" mandatory="y" >
+			<column name="user_token" type="uuid" jt="102" mandatory="y" >
 				<defo><![CDATA[uuid_generate_v1()]]></defo>
 			</column>
-			<column name="enabled" type="boolean" jt="-7" mandatory="y" >
+			<column name="enabled" type="boolean" jt="16" mandatory="y" >
 				<defo><![CDATA[true]]></defo>
 			</column>
 			<column name="aka_id" type="bigint" jt="-5" />
@@ -295,7 +302,7 @@
 			<column name="updated_on" type="timestamp" jt="93" />
 			<column name="due_date" type="date" jt="91" />
 			<column name="user_state" type="varchar" jt="12" />
-			<column name="one_two_three" type="boolean" jt="-7" >
+			<column name="user_state_type" prior="one_two_three" type="boolean" jt="16" >
 				<defo><![CDATA[true]]></defo>
 			</column>
 			<index name="lookup_email" unique="UNIQUE_KEY" >
@@ -334,7 +341,7 @@
 			<comment><![CDATA[#service: user]]></comment>
 			<column name="user_id" type="bigint" jt="-5" mandatory="y" />
 			<column name="product_id" type="integer" jt="4" mandatory="y" />
-			<column name="part_id" type="uuid" jt="1111" mandatory="y" />
+			<column name="part_id" type="uuid" jt="102" mandatory="y" />
 			<column name="inserted_on" type="bigint" jt="-5" mandatory="y" >
 				<comment><![CDATA[The UNIX epoch]]></comment>
 			</column>
@@ -360,7 +367,7 @@
 			</fk>
 		</table>
 	</schema>
-	<connector name="PostgreSQL" database="PostgreSQL" driver_class="org.postgresql.Driver" driver_jar="postgresql-42.2.23.jar" driver_desc="Standard" host="localhost" port="5432" instance="proto_crudl" user="proto_crudl" passwd="ZXJsX3Byb3RvZGI=" />
+	<connector name="PostgreSQL" database="PostgreSQL" driver_class="org.postgresql.Driver" driver_jar="postgresql-42.5.0.jar" driver_desc="Standard" host="localhost" port="5432" instance="proto_crudl" user="proto_crudl" passwd="ZXJsX3Byb3RvZGI=" useSystemProxy="false" />
 	<layout name="Default Layout" id="Layout_5f168fb" joined_routing="y" show_column_type="y" show_relation="columns" >
 		<entity schema="test_schema" name="address" color="C1D8EE" x="160" y="192" />
 		<entity schema="public" name="example_a" color="C1D8EE" x="464" y="688" />

@@ -13,7 +13,7 @@
 
 %% API
 -export([read_database/2, is_int64/1, is_int32/1, is_sql_float/1, read_columns/3, read_table/4,
-         sql_to_proto_datatype/1, count_params/1, limit_fun/1, create_fun/2,
+         sql_to_proto_datatype/1, count_params/1, limit_fun/1, create_fun/2, upsert_fun/2,
          default_value/1, read_fun/2, update_fun/2, delete_fun/2, mappings_fun/2, list_lookup_fun/2,
          update_fkeys_fun/3, sql_to_erlang_datatype/1, is_timestamp/1, random_value/1, is_date/1]).
 
@@ -964,6 +964,52 @@ create_defaults_record_fun(#table{query_dict = QD}, RecordName) ->
     "            logger:error(\"Failed to insert with defaults. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
     "            {error, Reason}\n"
     "    end.\n\n".
+
+-spec upsert_fun(string() | undefined, #table{}) -> string().
+upsert_fun(undefined, #table{query_dict = QD}) ->
+    case orddict:find("upsert", QD) of
+        {ok, Query} ->
+            Name = Query#query.name,
+            InParams = lists:join(", ", Query#query.in_params),
+            BindParams = lists:join(", ", Query#query.bind_params),
+            "upsert(" ++ InParams ++ ") ->\n" ++
+            "    Params = [" ++ BindParams ++ "],\n"
+            "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
+            "        #{command := insert, num_rows := 0} ->\n"
+            "            {error, failed_to_upsert};\n"
+            "        #{command := insert, num_rows := 1, rows := [Row]} ->\n"
+            "            {ok, Row};\n"
+            "        {error, {pgsql_error, #{code := <<\"23505\">>}}} ->\n"
+            "            {error, exists};\n"
+            "        {error, Reason} ->\n"
+            "            logger:error(\"Failed to upsert. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
+            "            {error, Reason}\n"
+            "    end.\n\n";
+        error ->
+            ""
+    end;
+upsert_fun(RecordName, #table{query_dict = QD}) ->
+    case orddict:find("upsert", QD) of
+        {ok, Query} ->
+            Name = Query#query.name,
+            InParams = lists:join(", ", Query#query.in_params),
+            BindParams = lists:join(", ", Query#query.bind_params),
+            "upsert(" ++ InParams ++ ") ->\n" ++
+            "    Params = [" ++ BindParams ++ "],\n"
+            "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
+            "        #{command := insert, num_rows := 0} ->\n"
+            "            {error, failed_to_insert};\n"
+            "        #{command := insert, num_rows := 1, rows := [Row]} ->\n"
+            "            {ok, Row};\n"
+            "        {error, {pgsql_error, #{code := <<\"23505\">>}}} ->\n"
+            "            {error, exists};\n"
+            "        {error, Reason} ->\n"
+            "            logger:error(\"Failed to insert. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
+            "            {error, Reason}\n"
+            "    end.\n\n";
+        error ->
+            ""
+    end.
 
 -spec read_fun(string() | undefined, #table{}) -> string().
 read_fun(undefined, #table{query_dict = QD}) ->

@@ -44,10 +44,23 @@ build_queries([{Key, T = #table{schema = S, name = N, query_dict = QD0, columns 
                                                           record    = IDR, map = IDM}, QD1)
           end,
 
+    % NEW FEATURE: UPSERT
+    QD2a = case build_upsert_sql(Schema, Name, T) of
+               "" ->
+                   QD2;
+               UpsertSql ->
+                   {ok, UpQ, UpP, UpIP, UpR, UpM} = proto_crudl_parse:parse_query(RecordName, UpsertSql, ColDict),
+                   orddict:store("upsert", #query{name      = "UPSERT",
+                                                  fun_name  = "upsert", fun_args = integer_to_list(length(UpP)),
+                                                  query     = UpQ,
+                                                  in_params = UpIP, bind_params = UpP,
+                                                  record    = UpR, map = UpM}, QD2)
+    end,
+
     % If no primary keys, then no read, update or delete
     QD5 = case T#table.pkey_list of
               [] ->
-                  QD2;
+                  QD2a;
               _ ->
                   % READ
                   SelectSql = build_select_sql(Schema, Name, T),
@@ -56,7 +69,7 @@ build_queries([{Key, T = #table{schema = S, name = N, query_dict = QD0, columns 
                                                        fun_name  = "read", fun_args = integer_to_list(length(SIP)),
                                                        query     = SQ,
                                                        in_params = SIP, bind_params = SP,
-                                                       record    = SR, map = SM}, QD2),
+                                                       record    = SR, map = SM}, QD2a),
 
                   % UPDATE
                   UpdateSql = build_update_sql(Schema, Name, T),
@@ -214,6 +227,59 @@ build_insert_xforms(ColDict, [ColumnName | Rest], SelectList, Clause, Params) ->
                                 [NewFun | Params])
     end.
 
+
+-spec build_upsert_sql(string(), string(), #table{}) -> UpsertStmt :: string().
+%% @doc This function will return the UPSERT statement based on the applied excluded columns and transformations. If
+%%      there are no upserts defined for this table, an empty string is returned.
+%%
+%%      -define(UPSERT, "INSERT INTO test_schema.address (address1, address2, city, state, country, postcode, version)
+%%              VALUES ($1, $2, $3, $4, $5, $6, 0)
+%%              ON CONFLICT ON CONSTRAINT unq_address
+%%              DO UPDATE test_schema.address SET address1 = EXCLUDED.address1, address2 = EXCLUDED.address2,
+%%                                                city = EXCLUDED.city, state = EXCLUDED.state, country = EXCLUDED.country,
+%%                                                postcode = EXCLUDED.postcode, version = EXCLUDED.version + 1
+%%              RETURNING address_id, address1, address2, city, state, country, postcode, version").
+build_upsert_sql(S, N, Table) ->
+    case Table#table.upsert_constraint of
+        undefined ->
+            "";
+        UpsertConst ->
+            ColDict = Table#table.columns,
+            SelectList = Table#table.select_list,
+            InsertList = Table#table.insert_list,
+
+            {Clause, Params} = build_insert_clause(InsertList, ColDict, [], []),
+
+            % Now add the upsert transforms
+            ColumnList = orddict:fetch_keys(ColDict),
+
+            {Clause1, Params1} = build_insert_xforms(ColDict, ColumnList, InsertList, [], []),
+
+            Clause2 = lists:append(Clause, Clause1),
+            Params2 = lists:append(Params, Params1),
+
+            % We need our update to return the record...
+            RetClause1 = build_select_clause(SelectList, ColDict, []),
+            RetClause2 = build_select_xforms(SelectList, ColDict, []),
+
+            % Now, we need our to add any transforms to the values. For example, the column geog would have an input
+            % that would include the lat, lng and then the output of the geog with a function that references those inputs.
+
+            UpdateSql = build_upsert_doupdate_sql(Table),
+
+            logger:info("Clause=~p, Params=~p", [Clause2, Params2]),
+            lists:flatten("INSERT INTO " ++ S ++ "." ++ N ++ " (" ++ lists:join(", ", Clause2) ++ ") "
+                            "VALUES (" ++ lists:join(", ", Params2) ++ ") " ++
+                            "ON CONFLICT ON CONSTRAINT " ++ proto_crudl_utils:to_string(UpsertConst) ++ " " ++
+                            "DO " ++ UpdateSql ++ " " ++
+                            "RETURNING " ++ lists:join(", ", lists:append(RetClause1, RetClause2)))
+    end.
+
+build_upsert_doupdate_sql(Table) ->
+    VersionName = Table#table.version_column,
+    UpdateList = [proto_crudl_utils:to_string(ColName) || ColName <- Table#table.update_list, ColName =/= VersionName],
+    lists:flatten("UPDATE SET " ++ lists:join(", ", [ColName ++ " = EXCLUDED." ++
+                                    ColName || ColName <- UpdateList]) ++ ", version = EXCLUDED.version + 1").
 
 -spec build_insert_defaults_sql(Schema :: binary(), Name :: binary(), Table :: #table{}) -> InsertStmt :: string().
 %% @doc This function will return the INSERT_DEFAULTS statement based on the applied excluded columns and transformations

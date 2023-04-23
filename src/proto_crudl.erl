@@ -112,6 +112,12 @@ process_configs(C, [{exclude_columns, Columns} | Rest], Database) ->
         {ok, Database1} ->
             process_configs(C, Rest, Database1)
     end;
+process_configs(C, [{upserts, Upserts} | Rest], Database) ->
+    io:format("~nProcessing upserts...~n"),
+    case process_upserts(Upserts, Database) of
+        {ok, Database1} ->
+            process_configs(C, Rest, Database1)
+    end;
 process_configs(C, [{extensions, Extensions} | Rest], Database) ->
     io:format("~nProcessing proto extensions...~n"),
     case process_extensions(Extensions, Database) of
@@ -331,6 +337,21 @@ find_where(Pos, [$e, $r, $e, $h, $w | _Rest]) ->
 find_where(Pos, [_Chr | Rest]) ->
     find_where(Pos + 1, Rest).
 
+-spec process_upserts([tuple()], #database{}) -> {ok, #database{}} | {error, Reason :: any()}.
+process_upserts([], Database) ->
+    {ok, Database};
+process_upserts([{FQN, Constraint} | Rest], Db = #database{tables = TablesDict}) ->
+    FQN1 = format_fqn(FQN),
+    case dict:find(FQN1, TablesDict) of
+        {ok, T0} ->
+            io:format("    ~p : ~p~n", [FQN1, Constraint]),
+            T1 = T0#table{upsert_constraint = Constraint},
+            process_upserts(Rest, Db#database{tables = dict:store(FQN1, T1, TablesDict)});
+        error ->
+            io:format("     WARNING: Table not found while processing upserts for ~p : ~p~n", [FQN, Constraint]),
+            process_upserts(Rest, Db)
+    end.
+
 -spec process_extensions([tuple()], #database{}) -> {ok, #database{}} | {error, Reason :: any()}.
 process_extensions([], Database) ->
     {ok, Database};
@@ -345,7 +366,6 @@ process_extensions([{FQN, Extension} | Rest], Db = #database{tables = TablesDict
             io:format("     WARNING: Table not found while processing extensions for ~p : ~p~n", [FQN, Extension]),
             process_extensions(Rest, Db)
     end.
-
 
 -spec process_options(pid(), [tuple()], dict:dict()) -> {ok, #database{}} | {error, Reason :: any()}.
 process_options(_C, [], Database) ->
