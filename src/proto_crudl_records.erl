@@ -23,7 +23,9 @@ generate_functions(postgres, FullPath, UsePackage, T = #table{schema = S, name =
                          "'" ++ proto_crudl_utils:camel_case(N) ++ "'"
                  end,
     ok = file:write_file(FullPath, array_support(orddict:to_list(T#table.columns)), [append]),
-    ok = file:write_file(FullPath, ts_support(orddict:to_list(T#table.columns)), [append]),
+
+    ok = file:write_file(FullPath, ts_support(proto_crudl_code:has_timestamps(T)), [append]),
+
     ok = file:write_file(FullPath, date_support(orddict:to_list(T#table.columns)), [append]),
     ok = file:write_file(FullPath, to_proto(T), [append]),
     ok = file:write_file(FullPath, from_proto(T), [append]),
@@ -66,41 +68,36 @@ array_support([{_Key, #column{data_type = <<"ARRAY">>}} | _Rest]) ->
 array_support([_Key | Rest]) ->
     array_support(Rest).
 
--spec ts_support([{binary(), #column{}}]) -> string().
-ts_support([]) ->
+-spec ts_support(boolean()) -> string().
+ts_support(false) ->
     "";
-ts_support([{_Key, #column{udt_name = UN}} | Rest]) ->
-    case string:prefix(UN, <<"timestamp">>) of
-        nomatch ->
-            ts_support(Rest);
-        _ ->
-            "ts_encode(Datetime={{_, _, _}, {_, _, Seconds}}) when is_integer(Seconds) ->\n"
-            "    Secs = calendar:datetime_to_gregorian_seconds(Datetime) - 62167219200,\n"
-            "    #'google.protobuf.Timestamp'{seconds = Secs, nanos = 0};\n"
-            "ts_encode({{Year, Month, Day}, {Hours, Minutes, Seconds}}) when is_float(Seconds)->\n"
-            "    IntegerSeconds = trunc(Seconds),\n"
-            "    US = trunc((Seconds - IntegerSeconds) * 1000000),\n"
-            "    Secs = calendar:datetime_to_gregorian_seconds({{Year, Month, Day},\n"
-            "                                                   {Hours, Minutes, IntegerSeconds}}) - 62167219200,\n"
-            "    #'google.protobuf.Timestamp'{seconds = Secs, nanos = US};\n"
-            "ts_encode(null) ->\n"
-            "    undefined;\n"
-            "ts_encode(V) ->\n"
-            "    V.\n"
-            "\n"
-            "ts_decode(#'google.protobuf.Timestamp'{seconds = S, nanos = N}) ->\n"
-            "    {Date, {Hour, Min, Seconds}} = calendar:gregorian_seconds_to_datetime(S + 62167219200),\n"
-            "    Seconds1 = add_usecs(Seconds, N),\n"
-            "    Time = {Hour, Min, Seconds1},\n"
-            "    {Date, Time};\n"
-            "ts_decode(V) ->\n"
-            "    V.\n\n"
-            "add_usecs(Secs, 0) ->\n"
-            "    %% leave seconds as an integer if there are no usecs\n"
-            "    Secs;\n"
-            "add_usecs(Secs, USecs) ->\n"
-            "    Secs + (USecs / 1000000).\n\n"
-    end.
+ts_support(true) ->
+    "ts_encode(Datetime={{_, _, _}, {_, _, Seconds}}) when is_integer(Seconds) ->\n"
+    "    Secs = calendar:datetime_to_gregorian_seconds(Datetime) - 62167219200,\n"
+    "    #'google.protobuf.Timestamp'{seconds = Secs, nanos = 0};\n"
+    "ts_encode({{Year, Month, Day}, {Hours, Minutes, Seconds}}) when is_float(Seconds)->\n"
+    "    IntegerSeconds = trunc(Seconds),\n"
+    "    US = trunc((Seconds - IntegerSeconds) * 1000000),\n"
+    "    Secs = calendar:datetime_to_gregorian_seconds({{Year, Month, Day},\n"
+    "                                                   {Hours, Minutes, IntegerSeconds}}) - 62167219200,\n"
+    "    #'google.protobuf.Timestamp'{seconds = Secs, nanos = US};\n"
+    "ts_encode(null) ->\n"
+    "    undefined;\n"
+    "ts_encode(V) ->\n"
+    "    V.\n"
+    "\n"
+    "ts_decode(#'google.protobuf.Timestamp'{seconds = S, nanos = N}) ->\n"
+    "    {Date, {Hour, Min, Seconds}} = calendar:gregorian_seconds_to_datetime(S + 62167219200),\n"
+    "    Seconds1 = add_usecs(Seconds, N),\n"
+    "    Time = {Hour, Min, Seconds1},\n"
+    "    {Date, Time};\n"
+    "ts_decode(V) ->\n"
+    "    V.\n\n"
+    "add_usecs(Secs, 0) ->\n"
+    "    %% leave seconds as an integer if there are no usecs\n"
+    "    Secs;\n"
+    "add_usecs(Secs, USecs) ->\n"
+    "    Secs + (USecs / 1000000).\n\n".
 
 -spec date_support([{binary(), #column{}}]) -> string().
 date_support([]) ->

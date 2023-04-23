@@ -76,14 +76,7 @@ write_proto(Version, ProtoFile, JavaPackage, Table) ->
 
     % Write the other imports first, like support for Timestamps
     ok = file:write_file(ProtoFile, "\n// Other imports\n", [append]),
-    Fun = fun(_ColumnName, Column, List) ->
-                Line = write_special_imports(Column#column.udt_name),
-                case lists:member(Line, List) of
-                    true -> List;
-                    false -> [Line | List]
-                end
-          end,
-    ImportList = orddict:fold(Fun, [], Table#table.columns),
+    ImportList = get_imports(Table),
     [ok = file:write_file(ProtoFile, Line, [append]) || Line <- ImportList],
 
     ok = file:write_file(ProtoFile, "\nmessage " ++ MessageName ++ " {\n", [append]),
@@ -102,6 +95,16 @@ write_proto(Version, ProtoFile, JavaPackage, Table) ->
     {_FieldNo, LineList} = write_proto_fields(Version, Table),
     [ok = file:write_file(ProtoFile, Line, [append]) || Line <- lists:reverse(LineList)],
     ok = file:write_file(ProtoFile, "}\n\n", [append]).
+
+get_imports(Table) ->
+    Fun = fun(_ColumnName, Column, List) ->
+                Line = write_special_imports(Column#column.udt_name),
+                case lists:member(Line, List) of
+                    true -> List;
+                    false -> [Line | List]
+                end
+          end,
+    orddict:fold(Fun, [], Table#table.columns).
 
 
 write_options(ProtoFile, Schema, MessageName, JavaPackage) ->
@@ -213,11 +216,37 @@ write_all_fields(Version, Columns) ->
     lists:foldl(Fun1, {1, []}, Columns).
 
 
-write_custom_proto(Version, ProtoFile, _Table = #table{mappings = Mappings}) ->
+write_custom_proto(Version, ProtoFile, Table = #table{mappings = Mappings}) ->
     Break = "//-------------------------- Custom Queries -----------------------------\n\n",
     ok = file:write_file(ProtoFile, Break, [append]),
+    % We need to handle any imports for our custom queries
+
+    AlreadyImported = get_imports(Table),
+    ImportList = get_custom_imports(AlreadyImported, orddict:to_list(Mappings), []),
+    file:write_file(ProtoFile, ImportList, [append]),
+    file:write_file(ProtoFile, "\n", [append]),
+
     Code = write_custom_message(Version, orddict:to_list(Mappings), []),
     file:write_file(ProtoFile, Code, [append]).
+
+get_custom_imports(_AlreadyImported, [], Acc) ->
+    Acc;
+get_custom_imports(AlreadyImported, [{_Key, #custom_query{result_set = ResultSets}} | Rest], Acc) ->
+    Fun = fun(#bind_var{data_type = DataType}, List) ->
+                Line = write_special_imports(DataType),
+                % First, see if we have already imported it from our main queries
+                case lists:member(Line, AlreadyImported) of
+                    true -> List;
+                    false ->
+                        % Check to see if we have already imported from our custom queries
+                        case lists:member(Line, List) of
+                            true -> List;
+                            false -> [Line | List]
+                        end
+                end
+           end,
+    ImportList = lists:foldl(Fun, Acc, ResultSets),
+    get_custom_imports(AlreadyImported, Rest, ImportList ++ Acc).
 
 write_custom_message(_Version, [], Acc) ->
     lists:flatten(Acc);

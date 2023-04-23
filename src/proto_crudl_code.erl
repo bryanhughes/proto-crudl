@@ -12,7 +12,7 @@
 -author("bryan").
 
 %% API
--export([generate/3, build_enum_case/1, is_version/2, is_excluded/2]).
+-export([generate/3, build_enum_case/1, is_version/2, is_excluded/2, has_timestamps/1]).
 
 -include("proto_crudl.hrl").
 
@@ -227,7 +227,7 @@ generate_exports(RecordsOrMaps, FullPath, Table = #table{query_dict = QD}) ->
             ok
     end,
 
-    case Table#table.has_timestamps of
+    case has_timestamps(Table) of
         true ->
             ok = file:write_file(FullPath, ",\n         ts_encode/1,\n"
                                            "         ts_decode/1", [append]);
@@ -235,6 +235,34 @@ generate_exports(RecordsOrMaps, FullPath, Table = #table{query_dict = QD}) ->
             ok
     end,
     ok = file:write_file(FullPath, "]).\n\n", [append]).
+
+-spec has_timestamps(Table :: #table{}) -> boolean().
+has_timestamps(T = #table{mappings = Mappings}) ->
+    % We need to determine if the table, or any custom queries involves directly or the import of a timestamp
+    case T#table.has_timestamps of
+        true ->
+            true;
+        false ->
+            has_mapping_timestamps(orddict:to_list(Mappings))
+    end.
+
+has_mapping_timestamps([]) ->
+    false;
+has_mapping_timestamps([{_Key, #custom_query{result_set = ResultSets}} | Rest]) ->
+    Fun = fun(#bind_var{data_type = <<116, 105, 109, 101, 115, 116, 97, 109, 112, _Rest/binary>>}, _) ->
+                true;
+             (#bind_var{data_type = <<"date">>}, _) ->
+                true;
+             (_, Result) ->
+                 Result
+          end,
+    case lists:foldl(Fun, false, ResultSets) of
+        true ->
+            io:format("======== has_mapping_timestamps TRUE : ResultSets=~p", [ResultSets]),
+            true;
+        false ->
+            has_mapping_timestamps(Rest)
+    end.
 
 -spec is_version(orddict:dict(), binary()) -> boolean().
 is_version(ColDict, C) when is_binary(C) ->
