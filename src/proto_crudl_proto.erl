@@ -230,10 +230,13 @@ write_custom_proto(Version, ProtoFile, Table = #table{mappings = Mappings}) ->
     file:write_file(ProtoFile, Code, [append]).
 
 get_custom_imports(_AlreadyImported, [], Acc) ->
+    %io:format("======== Acc=~p~n", [Acc]),
     Acc;
 get_custom_imports(AlreadyImported, [{_Key, #custom_query{result_set = ResultSets}} | Rest], Acc) ->
+    %io:format("======== AlreadyImported=~p, ResultSet=~p, Acc=~p~n", [AlreadyImported, ResultSets, Acc]),
     Fun = fun(#bind_var{data_type = DataType}, List) ->
                 Line = write_special_imports(DataType),
+                %io:format("======== Line=~p, List=~p~n", [Line, List]),
                 % First, see if we have already imported it from our main queries
                 case lists:member(Line, AlreadyImported) of
                     true -> List;
@@ -246,7 +249,8 @@ get_custom_imports(AlreadyImported, [{_Key, #custom_query{result_set = ResultSet
                 end
            end,
     ImportList = lists:foldl(Fun, Acc, ResultSets),
-    get_custom_imports(AlreadyImported, Rest, ImportList ++ Acc).
+    %io:format("======== ImportList=~p~n", [ImportList]),
+    get_custom_imports(AlreadyImported, Rest, ImportList).
 
 write_custom_message(_Version, [], Acc) ->
     lists:flatten(Acc);
