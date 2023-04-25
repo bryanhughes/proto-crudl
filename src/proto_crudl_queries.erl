@@ -51,7 +51,7 @@ build_queries([{Key, T = #table{schema = S, name = N, query_dict = QD0, columns 
                UpsertSql ->
                    {ok, UpQ, UpP, UpIP, UpR, UpM} = proto_crudl_parse:parse_query(RecordName, UpsertSql, ColDict),
                    orddict:store("upsert", #query{name      = "UPSERT",
-                                                  fun_name  = "upsert", fun_args = integer_to_list(length(UpP)),
+                                                  fun_name  = "upsert", fun_args = integer_to_list(length(UpIP)),
                                                   query     = UpQ,
                                                   in_params = UpIP, bind_params = UpP,
                                                   record    = UpR, map = UpM}, QD2)
@@ -232,18 +232,21 @@ build_insert_xforms(ColDict, [ColumnName | Rest], SelectList, Clause, Params) ->
 %% @doc This function will return the UPSERT statement based on the applied excluded columns and transformations. If
 %%      there are no upserts defined for this table, an empty string is returned.
 %%
-%%      -define(UPSERT, "INSERT INTO test_schema.address (address1, address2, city, state, country, postcode, version)
-%%              VALUES ($1, $2, $3, $4, $5, $6, 0)
+%%      We need to handle xforms on the UPDATE statement
+%%
+%%      -define(UPSERT, "INSERT INTO test_schema.address (address1, address2, city, state, country, postcode, geog, version)
+%%              VALUES ($1, $2, $3, $4, $5, $6, geog = ST_POINT($7, $8)::geography, 0)
 %%              ON CONFLICT ON CONSTRAINT unq_address
 %%              DO UPDATE test_schema.address SET address1 = EXCLUDED.address1, address2 = EXCLUDED.address2,
 %%                                                city = EXCLUDED.city, state = EXCLUDED.state, country = EXCLUDED.country,
-%%                                                postcode = EXCLUDED.postcode, version = EXCLUDED.version + 1
+%%                                                postcode = EXCLUDED.postcode, geog = EXCLUDED.geog,
+%%                                                version = EXCLUDED.version + 1
 %%              RETURNING address_id, address1, address2, city, state, country, postcode, version").
 build_upsert_sql(S, N, Table) ->
     case Table#table.upsert_constraint of
         undefined ->
             "";
-        UpsertConst ->
+        {UpsertConst, Action} ->
             ColDict = Table#table.columns,
             SelectList = Table#table.select_list,
             InsertList = Table#table.insert_list,
@@ -265,19 +268,20 @@ build_upsert_sql(S, N, Table) ->
             % Now, we need our to add any transforms to the values. For example, the column geog would have an input
             % that would include the lat, lng and then the output of the geog with a function that references those inputs.
 
-            UpdateSql = build_upsert_doupdate_sql(Table),
+            DoUpdateClause = build_upsert_doupdate_sql(Action),
 
             logger:info("Clause=~p, Params=~p", [Clause2, Params2]),
             lists:flatten("INSERT INTO " ++ S ++ "." ++ N ++ " (" ++ lists:join(", ", Clause2) ++ ") "
                             "VALUES (" ++ lists:join(", ", Params2) ++ ") " ++
                             "ON CONFLICT ON CONSTRAINT " ++ proto_crudl_utils:to_string(UpsertConst) ++ " " ++
-                            "DO " ++ UpdateSql ++ " " ++
+                            "DO " ++ DoUpdateClause ++ " " ++
                             "RETURNING " ++ lists:join(", ", lists:append(RetClause1, RetClause2)))
     end.
 
-build_upsert_doupdate_sql(Table) ->
-    VersionName = Table#table.version_column,
-    UpdateList = [proto_crudl_utils:to_string(ColName) || ColName <- Table#table.update_list, ColName =/= VersionName],
+build_upsert_doupdate_sql(do_nothing) ->
+    "NOTHING";
+build_upsert_doupdate_sql({do_update, ColList}) ->
+    UpdateList = [proto_crudl_utils:to_string(ColName) || ColName <- ColList],
     lists:flatten("UPDATE SET " ++ lists:join(", ", [ColName ++ " = EXCLUDED." ++
                                     ColName || ColName <- UpdateList]) ++ ", version = EXCLUDED.version + 1").
 

@@ -630,4 +630,49 @@ upsert_upsert_record_test() ->
 
     ok.
 
+upsert_xform_cols_test() ->
+    ?LOG_INFO("====================== upsert_xform_cols_test() START ======================"),
+    ?LOG_INFO("Deleting from test_schema.user"),
+
+    Query = "DELETE FROM test_schema.user",
+    case pgo:query(Query, []) of
+        #{command := delete} ->
+            ok;
+        {error, Reason} ->
+            erlang:error(Reason)
+    end,
+
+    % Do a good create
+    {ok, Bryan} = test_schema_user_db:create(<<"Bryan">>, <<"Hughes">>, <<"hughesb@gmail.com">>, undefined,
+                                             [1, 2, 3], 'BIG_SHOT', 100, {{2021, 2, 23}, {10, 23, 23.5}}, {2021, 2, 23},
+                                             'living', undefined, undefined),
+    ?LOG_INFO("Bryan=~p", [Bryan]),
+    ?assertEqual(<<"hughesb@gmail.com">>, Bryan#'test_schema.User'.email),
+    ?assertEqual(<<"Bryan">>, Bryan#'test_schema.User'.first_name),
+    ?assertEqual(<<"Hughes">>, Bryan#'test_schema.User'.last_name),
+    ?assertEqual([1, 2, 3], Bryan#'test_schema.User'.my_array),
+    ?assertEqual('BIG_SHOT', Bryan#'test_schema.User'.user_type),
+    ?assertEqual('living', Bryan#'test_schema.User'.user_state),
+    ?assertEqual(0, Bryan#'test_schema.User'.version),
+    ?assertEqual({'google.protobuf.Timestamp',1614075803,500000}, Bryan#'test_schema.User'.updated_on),
+    ?assertEqual({'google.protobuf.Timestamp',1614038400,0}, Bryan#'test_schema.User'.due_date),
+
+    {ok, Bryan1} = test_schema_user_db:upsert(<<"Bryan">>, <<"Hughes">>, <<"hughesb@gmail.com">>, undefined, true, undefined,
+                                              [3, 2, 1], 'BUSY_GUY', 100,
+                                              {{2021, 2, 23}, {10, 23, 23.5}}, {{2021, 2, 23}, {10, 23, 23.5}},
+                                              {2021, 2, 23}, 'living', true, undefined, undefined),
+
+    ?LOG_INFO("Bryan1=~p", [Bryan1]),
+    ?assertEqual(<<"hughesb@gmail.com">>, Bryan1#'test_schema.User'.email),
+    ?assertEqual(<<"Bryan">>, Bryan1#'test_schema.User'.first_name),
+    ?assertEqual(<<"Hughes">>, Bryan1#'test_schema.User'.last_name),
+    ?assertEqual([3, 2, 1], Bryan1#'test_schema.User'.my_array),
+    ?assertEqual('BUSY_GUY', Bryan1#'test_schema.User'.user_type),
+    ?assertEqual('living', Bryan1#'test_schema.User'.user_state),
+    ?assertEqual(1, Bryan1#'test_schema.User'.version),
+    ?assertEqual({'google.protobuf.Timestamp',1614075803,500000}, Bryan1#'test_schema.User'.updated_on),
+    ?assertEqual({'google.protobuf.Timestamp',1614038400,0}, Bryan1#'test_schema.User'.due_date),
+
+    ok.
+
 -endif.
