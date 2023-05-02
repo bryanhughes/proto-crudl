@@ -285,15 +285,14 @@ process_columns(Table, VersionColumn, [{CN, OP, DT, UN, CD, IN, IP, IF, IS} | Re
     % Add any non-mandatory foreign keys to our update list. Mandatory foreign keys are not allowed to be updated
     % directly. You must create a custom query to do this.
     UpdateList = case {IP, IF, IN0} of
-                      {true, _, _} ->
-                          Table#table.update_list;
-                      {_, false, _} ->
-                          [CN | Table#table.update_list];
-                      {_, true, false} ->
-                          [CN | Table#table.update_list];
-                      _ ->
-                          Table#table.update_list
-                  end,
+                     {true, _, _} ->
+                         Table#table.update_list;
+                     {_, true, false} ->
+                         Table#table.update_list;
+                     _ ->
+                         [CN | Table#table.update_list]
+                 end,
+    %io:format(">>>>>>>>>>>>>> UpdateList=~p~n", [UpdateList]),
     process_columns(Table#table{columns = ColDict,
                                 has_timestamps = HasTimestamps,
                                 has_dates      = HasDates,

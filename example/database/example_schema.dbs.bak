@@ -29,7 +29,7 @@
 			<column name="column_1" type="integer" jt="4" mandatory="y" />
 			<column name="test_id" type="integer" jt="4" />
 			<column name="p_bar" type="varchar" jt="12" />
-			<column name="t_bar" type="varchar" jt="12" />
+			<column name="t_bar" type="varchar" jt="12" mandatory="y" />
 			<index name="pk_example_b_column_1" unique="PRIMARY_KEY" >
 				<column name="column_1" />
 			</index>
@@ -290,7 +290,7 @@
 			<column name="email" type="varchar" jt="12" mandatory="y" />
 			<column name="geog" type="geography(point)" jt="1111" />
 			<column name="pword_hash" type="bytea" jt="-2" />
-			<column name="user_token" type="uuid" jt="102" mandatory="y" >
+			<column name="user_token" type="uuid" jt="102" >
 				<defo><![CDATA[uuid_generate_v1()]]></defo>
 			</column>
 			<column name="enabled" type="boolean" jt="16" mandatory="y" >

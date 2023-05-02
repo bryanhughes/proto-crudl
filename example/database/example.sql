@@ -67,7 +67,7 @@ CREATE  TABLE "public".example_b (
 	column_1             integer  NOT NULL  ,
 	test_id              integer    ,
 	p_bar                varchar    ,
-	t_bar                varchar    ,
+	t_bar                varchar  NOT NULL  ,
 	CONSTRAINT pk_example_b_column_1 PRIMARY KEY ( column_1 ),
 	CONSTRAINT unq_example_b_column_a UNIQUE ( column_a ) 
  );
