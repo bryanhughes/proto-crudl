@@ -21,6 +21,7 @@
                  is_nullable = false :: boolean(),
                  is_sequence = false :: boolean(),
                  is_pkey = false :: boolean(),
+                 is_fkey = false :: boolean(),
                  is_virtual = false :: boolean(),
                  is_excluded = false :: boolean(),
                  is_input = false :: boolean(),

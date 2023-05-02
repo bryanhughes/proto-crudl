@@ -42,7 +42,18 @@
         c.column_default,
         c.is_nullable,
         CASE WHEN pa.attname is null THEN false ELSE true END is_pkey,
-        CASE WHEN pg_get_serial_sequence(table_schema || '.' || table_name, column_name) is null THEN false ELSE true END is_seq
+        CASE WHEN (SELECT count(tc.constraint_name)
+                   FROM information_schema.key_column_usage kcu,
+                        information_schema.table_constraints tc
+                   WHERE kcu.table_schema = c.table_schema
+                   AND kcu.table_name = c.table_name
+                   AND kcu.column_name = c.column_name
+                   AND tc.constraint_type = 'FOREIGN KEY'
+                   AND tc.constraint_name = kcu.constraint_name
+                   AND tc.table_schema = kcu.table_schema
+                   AND tc.table_name = kcu.table_name
+                   ) = 0 THEN false ELSE true END is_fkey,
+        CASE WHEN pg_get_serial_sequence(ns.nspname || '.' || t.relname, c.column_name) is null THEN false ELSE true END is_seq
     FROM
         pg_namespace ns
     JOIN pg_class t ON
@@ -60,7 +71,7 @@
         AND pa.attname = c.column_name
     WHERE
         ns.nspname = $1
-    ORDER BY table_schema, table_name, ordinal_position DESC").
+    ORDER BY c.table_schema, c.table_name, ordinal_position DESC").
 
 -define(READ_INDEXES, "SELECT
         i.relname AS index_name,
@@ -244,11 +255,11 @@ read_columns(C, T0 = #table{name = N, schema = S}, VersionColumn) ->
     {ok, #table{}} | {error, Reason :: any()}.
 process_columns(Table, _VersionColumn, []) ->
     {ok, Table};
-process_columns(Table, VersionColumn, [{CN, OP, DT, UN, CD, IN, IP, IS} | Rest]) ->
+process_columns(Table, VersionColumn, [{CN, OP, DT, UN, CD, IN, IP, IF, IS} | Rest]) ->
     IN0 = case IN of <<"YES">> -> true; <<"NO">> -> false end,
     IsVersion = VersionColumn == CN,
     Col = #column{table_name = Table#table.name, table_schema = Table#table.schema, name = CN, ordinal_position = OP,
-                  data_type  = DT, udt_name = UN, default = CD, is_nullable = IN0, is_pkey = IP,
+                  data_type  = DT, udt_name = UN, default = CD, is_nullable = IN0, is_pkey = IP, is_fkey = IF,
                   is_version = IsVersion, is_sequence = IS},
     ColDict = orddict:store(CN, Col, Table#table.columns),
     PkList = case IP of true -> [CN | Table#table.pkey_list]; _ -> Table#table.pkey_list end,
@@ -256,8 +267,8 @@ process_columns(Table, VersionColumn, [{CN, OP, DT, UN, CD, IN, IP, IS} | Rest])
     HasTimestamps = Table#table.has_timestamps or is_timestamp(UN),
     HasArrays = Table#table.has_arrays or is_array(DT),
     HasDates = Table#table.has_dates or is_date(UN),
-    io:format("    Column: ~p  ~p  ~p ... (default: ~p, is_pkey: ~p, is_seq: ~p, is_nullable: ~p, is_version: ~p, has_timestamps: ~p)~n",
-              [CN, DT, UN, CD, IP, IS, IN0, IsVersion, HasTimestamps]),
+    io:format("    Column: ~p  ~p  ~p ... (default: ~p, is_pkey: ~p, is_fkey: ~p, is_seq: ~p, is_nullable: ~p, is_version: ~p, has_timestamps: ~p)~n",
+              [CN, DT, UN, CD, IP, IF, IS, IN0, IsVersion, HasTimestamps]),
 
     DefaultList = case {IsVersion, CD, IS} of
                       {true, _, _} ->
@@ -270,8 +281,20 @@ process_columns(Table, VersionColumn, [{CN, OP, DT, UN, CD, IN, IP, IS} | Rest])
                       _ ->
                           [CN | Table#table.default_list] end,
     InsertList = case IS of false -> [CN | Table#table.insert_list]; _ -> Table#table.insert_list end,
-    UpdateList = case IP of false -> [CN | Table#table.update_list]; _ -> Table#table.update_list end,
-    process_columns(Table#table{columns        = ColDict,
+
+    % Add any non-mandatory foreign keys to our update list. Mandatory foreign keys are not allowed to be updated
+    % directly. You must create a custom query to do this.
+    UpdateList = case {IP, IF, IN0} of
+                      {true, _, _} ->
+                          Table#table.update_list;
+                      {_, false, _} ->
+                          [CN | Table#table.update_list];
+                      {_, true, false} ->
+                          [CN | Table#table.update_list];
+                      _ ->
+                          Table#table.update_list
+                  end,
+    process_columns(Table#table{columns = ColDict,
                                 has_timestamps = HasTimestamps,
                                 has_dates      = HasDates,
                                 has_arrays     = HasArrays,
@@ -1320,18 +1343,21 @@ read_database_test() ->
 
     % Test columns
     {column, <<"user">>, <<"test_schema">>, <<"aka_id">>, 9,
-     <<"bigint">>, <<"bigint">>, null, true, false, false,
+     <<"bigint">>, <<"bigint">>, null, true, false, false, true,
      false, false, false, false, undefined, undefined, undefined,
      undefined, []} = orddict:fetch(<<"aka_id">>, Table#table.columns),
 
+    C0 = orddict:fetch(<<"email">>, Table#table.columns),
+    io:format(">>>>>>>>>>> ~p : ~p~n", [C0#column.is_fkey, C]),
+
     {column, <<"user">>, <<"test_schema">>, <<"email">>, 4,
      <<"character varying">>, <<"character varying">>, null, false,
-     false, false, false, false, false, false, undefined, undefined, undefined,
-     undefined, []} = orddict:fetch(<<"email">>, Table#table.columns),
+     false, false, false, false, false, false, false, undefined, undefined, undefined,
+     undefined, []} = C0,
 
     {column,<<"user">>,<<"test_schema">>,
      <<"user_type">>,11,<<"character varying">>,
-     <<"character varying">>,null,false,false, false,false,false,false,false,undefined, undefined,undefined,undefined,
+     <<"character varying">>,null,false,false,false,false,false,false,false,false,undefined, undefined,undefined,undefined,
      [<<"BIG SHOT">>,<<"LITTLE-SHOT">>,
       <<"BUSY_GUY">>,<<"BUSYGAL">>,<<"123FUN">>]} = orddict:fetch(<<"user_type">>, Table#table.columns),
 
