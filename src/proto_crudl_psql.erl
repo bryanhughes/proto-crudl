@@ -15,7 +15,7 @@
 -export([read_database/2, is_int64/1, is_int32/1, is_sql_float/1, read_columns/3, read_table/4,
          sql_to_proto_datatype/1, count_params/1, limit_fun/1, create_fun/2, upsert_fun/2,
          default_value/1, read_fun/2, update_fun/2, delete_fun/2, mappings_fun/2, list_lookup_fun/2,
-         update_fkeys_fun/3, sql_to_erlang_datatype/1, is_timestamp/1, random_value/1, is_date/1]).
+         update_fkeys_fun/3, sql_to_erlang_datatype/1, is_timestamp/1, random_value/1, is_date/1, exclude_from_update/2]).
 
 -define(READ_TABLES, "SELECT
         t.table_schema,
@@ -364,7 +364,7 @@ read_relationships(C, T0 = #table{name = N, schema = S}) ->
             case process_relationships(undefined, S, N, Rows, []) of
                 {ok, Relations} ->
                     % Now, remove the foreign key from the update list
-                    exclude_from_update(T0#table{relations = Relations}, Relations);
+                    {ok, T0#table{relations = Relations}};
                 {error, Reason} ->
                     io:format("    ERROR: Failed to get foreign relationships for table ~p.~p. Reason=~p, Stmt=~p~n",
                               [S, N, Reason, ?READ_FOREIGN_RELATIONSHIPS]),
@@ -402,6 +402,12 @@ process_relationships(Rel, S, T, [{CN, FS, FT, FC, LC, OP} | Rest], Relations) -
             process_relationships(NewRel, S, T, Rest, [Rel | Relations])
     end.
 
+
+%% @doc This function was used to exclude ALL foreign key columns from the update clause. Unfortunately ONLY
+%%      identifying foreign keys should be excluded while non-identifying are allowed. The reason is that identifying
+%%      relationships should be explicitly updated to avoid accidental changes.
+%% @param Table #table{}
+%% @returns {ok, #table"{}}
 exclude_from_update(Table, []) ->
     {ok, Table};
 exclude_from_update(Table0, [#foreign_relation{foreign_columns = FC} | Rest]) ->
@@ -1347,7 +1353,6 @@ read_database_test() ->
      undefined, []} = orddict:fetch(<<"aka_id">>, Table#table.columns),
 
     C0 = orddict:fetch(<<"email">>, Table#table.columns),
-    io:format(">>>>>>>>>>> ~p : ~p~n", [C0#column.is_fkey, C]),
 
     {column, <<"user">>, <<"test_schema">>, <<"email">>, 4,
      <<"character varying">>, <<"character varying">>, null, false,
@@ -1397,7 +1402,7 @@ read_database_test() ->
 
     % primary key should be excluded
     ?assertEqual([<<"first_name">>, <<"last_name">>, <<"email">>, <<"geog">>, <<"pword_hash">>,
-                  <<"user_token">>, <<"enabled">>, <<"my_array">>, <<"user_type">>,
+                  <<"user_token">>, <<"enabled">>, <<"aka_id">>, <<"my_array">>, <<"user_type">>,
                   <<"number_value">>, <<"created_on">>, <<"updated_on">>, <<"due_date">>, <<"user_state">>,
                   <<"user_state_type">>], Table#table.update_list),
 

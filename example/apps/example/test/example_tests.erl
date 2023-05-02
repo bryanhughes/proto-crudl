@@ -489,11 +489,12 @@ update_fkey_record_test() ->
 
     ?LOG_INFO("Tom (before update)=~p", [Tom]),
 
-    % Now Update Tom and try to update the aka_id directly, this should not work
-    {ok, Tom1} = test_schema_user_db:update(Tom#'test_schema.User'{aka_id = 100000, user_type = 'BUSY_GUY'}),
+    % Now Update Tom and and aka_id directly so point back to Tom
+    {ok, Tom1} = test_schema_user_db:update(Tom#'test_schema.User'{aka_id = Bryan#'test_schema.User'.user_id,
+                                                                   user_type = 'BUSY_GUY'}),
     ?LOG_INFO("Tom1 (after update #1)=~p", [Tom1]),
 
-    ?assertNotEqual(Bryan#'test_schema.User'.user_id, Tom1#'test_schema.User'.aka_id),
+    ?assertEqual(Bryan#'test_schema.User'.user_id, Tom1#'test_schema.User'.aka_id),
     ?assertEqual('BUSY_GUY', Tom1#'test_schema.User'.user_type),
 
     % Now do the update on the foreign key

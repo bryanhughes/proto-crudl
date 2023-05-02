@@ -618,7 +618,7 @@ define_test() ->
 
     UpdateOutput = build_update_sql(S, N, UserTable),
     ?LOG_INFO("UpdateOutput=~p~n", [UpdateOutput]),
-    UpdateAssert = "UPDATE test_schema.user SET first_name = $first_name, last_name = $last_name, email = $email, user_token = $user_token, enabled = $enabled, my_array = $my_array, user_type = $user_type, number_value = $number_value, created_on = $created_on, updated_on = $updated_on, due_date = $due_date, user_state = $user_state, user_state_type = $user_state_type, geog = ST_POINT($lon, $lat)::geography WHERE user_id = $user_id RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, user_state_type, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon",
+    UpdateAssert = "UPDATE test_schema.user SET first_name = $first_name, last_name = $last_name, email = $email, user_token = $user_token, enabled = $enabled, aka_id = $aka_id, my_array = $my_array, user_type = $user_type, number_value = $number_value, created_on = $created_on, updated_on = $updated_on, due_date = $due_date, user_state = $user_state, user_state_type = $user_state_type, geog = ST_POINT($lon, $lat)::geography WHERE user_id = $user_id RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, user_state_type, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon",
     ?assertEqual(UpdateAssert, UpdateOutput),
 
     DeleteOutput = build_delete_sql(S, N, UserTable),
@@ -703,8 +703,7 @@ inject_version_test() ->
 
     UpdateOutput = build_update_sql(S, N, UserTable),
     ?LOG_INFO("UpdateOutput=~p~n", [UpdateOutput]),
-    % #'test_schema.User'{user_id = UserId, first_name = FirstName, last_name = LastName, email = Email, user_token = UserToken, enabled = Enabled, aka_id = AkaId, my_array = MyArray, user_type = UserType, number_value = NumberValue, created_on = CreatedOn, updated_on = UpdatedOn, due_date = DueDate, user_state = UserState, version = Version, lat = Lat, lon = Lon}
-    UpdateAssert = "UPDATE test_schema.user SET first_name = $first_name, last_name = $last_name, email = $email, user_token = $user_token, enabled = $enabled, my_array = $my_array, user_type = $user_type, number_value = $number_value, created_on = $created_on, updated_on = $updated_on, due_date = $due_date, user_state = $user_state, user_state_type = $user_state_type, version = version + 1, geog = ST_POINT($lon, $lat)::geography WHERE user_id = $user_id AND version = $version RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, user_state_type, version, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon",
+    UpdateAssert = "UPDATE test_schema.user SET first_name = $first_name, last_name = $last_name, email = $email, user_token = $user_token, enabled = $enabled, aka_id = $aka_id, my_array = $my_array, user_type = $user_type, number_value = $number_value, created_on = $created_on, updated_on = $updated_on, due_date = $due_date, user_state = $user_state, user_state_type = $user_state_type, version = version + 1, geog = ST_POINT($lon, $lat)::geography WHERE user_id = $user_id AND version = $version RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, user_state_type, version, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon",
     ?assertEqual(UpdateAssert, UpdateOutput),
 
     UpdateFkeyOutput = build_update_fkey_sql(S, N, UserTable, [#foreign_column{local_name = <<"aka_id">>}]),
