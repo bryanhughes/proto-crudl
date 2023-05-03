@@ -31,6 +31,7 @@ generate_functions(postgres, FullPath, UsePackage, T = #table{schema = S, name =
     ok = file:write_file(FullPath, from_proto(T), [append]),
     ok = file:write_file(FullPath, empty_record(RecordName, T), [append]),
     ok = file:write_file(FullPath, to_proplist(RecordName, T), [append]),
+    ok = file:write_file(FullPath, from_proplist(RecordName, T), [append]),
     Schema = proto_crudl_utils:to_string(T#table.schema),
     ok = file:write_file(FullPath, raw_row_decoder(T), [append]),
     ok = file:write_file(FullPath, custom_row_decoders(Schema, orddict:to_list(T#table.mappings), []), [append]),
@@ -124,10 +125,20 @@ date_support([{_Key, #column{udt_name = UN}} | Rest]) ->
 
 to_proplist(RecordName, Table) ->
     "to_proplist(R) ->\n"
-    "    [" ++ build_proplist(RecordName, Table) ++ "].\n\n".
+    "    [" ++ build_to_proplist(RecordName, Table) ++ "].\n\n".
 
-build_proplist(RecordName, #table{columns = ColDict}) ->
+build_to_proplist(RecordName, #table{columns = ColDict}) ->
     L = ["{" ++ Col ++ ", R#" ++ RecordName ++ "." ++ Col ++ "}" || Col <-
+        [proto_crudl_utils:to_string(C) || C <- orddict:fetch_keys(ColDict),
+         proto_crudl_code:is_excluded(ColDict, C) == false]],
+    lists:flatten(lists:join(", ", L)).
+
+from_proplist(RecordName, Table) ->
+    "from_proplist(PropList) ->\n"
+    "    #" ++ RecordName ++ "{" ++ build_from_proplist(Table) ++ "}.\n\n".
+
+build_from_proplist(#table{columns = ColDict}) ->
+    L = [Col ++ " = proplists:get_value(" ++ Col ++ ", PropList)" || Col <-
         [proto_crudl_utils:to_string(C) || C <- orddict:fetch_keys(ColDict),
          proto_crudl_code:is_excluded(ColDict, C) == false]],
     lists:flatten(lists:join(", ", L)).

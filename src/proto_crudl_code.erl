@@ -180,6 +180,7 @@ generate_exports(RecordsOrMaps, FullPath, Table = #table{query_dict = QD}) ->
             ok = file:write_file(FullPath, "-export([from_proto/1,\n"
                                            "         to_proto/1,\n"
                                            "         to_proplist/1,\n"
+                                           "         from_proplist/1,\n"
                                            "         new/0,\n", [append])
     end,
 
