@@ -546,8 +546,17 @@ create_upsert_record_test() ->
     ?assertEqual(Notes, ReadAddr#'test_schema.Address'.notes),
 
     UpdNotes = <<"This is an updated note on upsert">>,
-    {ok, UpsertAddr} = test_schema_address_db:upsert(Address1, Address2, City, State, Country, Zip, UpdNotes),
+    R = #'test_schema.Address'{address_id = 99999999, % This will be ignored on the upsert
+                               address1 = Address1,
+                               address2 = Address2,
+                               city = City,
+                               state = State,
+                               country = Country,
+                               postcode = Zip,
+                               notes = UpdNotes},
+    {ok, UpsertAddr} = test_schema_address_db:upsert(R),
 
+    ?assertNotEqual(99999999, UpsertAddr#'test_schema.Address'.address_id),
     ?assertEqual(Address1, UpsertAddr#'test_schema.Address'.address1),
     ?assertEqual(Address2, UpsertAddr#'test_schema.Address'.address2),
     ?assertEqual(City, UpsertAddr#'test_schema.Address'.city),
@@ -588,7 +597,15 @@ upsert_upsert_record_test() ->
     Country = <<"US">>,
     Notes = <<"This was created">>,
 
-    {ok, CreateAddr} = test_schema_address_db:upsert(Address1, Address2, City, State, Country, Zip, Notes),
+    UpsertAddr = #'test_schema.Address'{address1 = Address1,
+                                        address2 = Address2,
+                                        city     = City,
+                                        state    = State,
+                                        postcode = Zip,
+                                        country  = Country,
+                                        notes    = Notes},
+
+    {ok, CreateAddr} = test_schema_address_db:upsert(UpsertAddr),
 
     ?assertEqual(Address1, CreateAddr#'test_schema.Address'.address1),
     ?assertEqual(Address2, CreateAddr#'test_schema.Address'.address2),
@@ -609,15 +626,22 @@ upsert_upsert_record_test() ->
     ?assertEqual(Notes, ReadAddr#'test_schema.Address'.notes),
 
     UpdNotes = <<"This is an updated note on upsert">>,
-    {ok, UpsertAddr} = test_schema_address_db:upsert(Address1, Address2, City, State, Country, Zip, UpdNotes),
+    R = #'test_schema.Address'{address1 = Address1,
+                               address2 = Address2,
+                               city     = City,
+                               state    = State,
+                               postcode = Zip,
+                               country  = Country,
+                               notes    = UpdNotes},
+    {ok, UpsertAddr1} = test_schema_address_db:upsert(R),
 
-    ?assertEqual(Address1, UpsertAddr#'test_schema.Address'.address1),
-    ?assertEqual(Address2, UpsertAddr#'test_schema.Address'.address2),
-    ?assertEqual(City, UpsertAddr#'test_schema.Address'.city),
-    ?assertEqual(State, UpsertAddr#'test_schema.Address'.state),
-    ?assertEqual(Zip, UpsertAddr#'test_schema.Address'.postcode),
-    ?assertEqual(Country, UpsertAddr#'test_schema.Address'.country),
-    ?assertEqual(UpdNotes, UpsertAddr#'test_schema.Address'.notes),
+    ?assertEqual(Address1, UpsertAddr1#'test_schema.Address'.address1),
+    ?assertEqual(Address2, UpsertAddr1#'test_schema.Address'.address2),
+    ?assertEqual(City, UpsertAddr1#'test_schema.Address'.city),
+    ?assertEqual(State, UpsertAddr1#'test_schema.Address'.state),
+    ?assertEqual(Zip, UpsertAddr1#'test_schema.Address'.postcode),
+    ?assertEqual(Country, UpsertAddr1#'test_schema.Address'.country),
+    ?assertEqual(UpdNotes, UpsertAddr1#'test_schema.Address'.notes),
 
     {ok, ReadAddr1} = test_schema_address_db:read(CreateAddr#'test_schema.Address'.address_id),
 
@@ -658,10 +682,8 @@ upsert_xform_cols_test() ->
     ?assertEqual({'google.protobuf.Timestamp',1614075803,500000}, Bryan#'test_schema.User'.updated_on),
     ?assertEqual({'google.protobuf.Timestamp',1614038400,0}, Bryan#'test_schema.User'.due_date),
 
-    {ok, Bryan1} = test_schema_user_db:upsert(<<"Bryan">>, <<"Hughes">>, <<"hughesb@gmail.com">>, undefined, true, undefined,
-                                              [3, 2, 1], 'BUSY_GUY', 100,
-                                              {{2021, 2, 23}, {10, 23, 23.5}}, {{2021, 2, 23}, {10, 23, 23.5}},
-                                              {2021, 2, 23}, 'living', true, undefined, undefined),
+    BryanUpd = Bryan#'test_schema.User'{my_array = [3, 2, 1], user_type = 'BUSY_GUY'},
+    {ok, Bryan1} = test_schema_user_db:upsert(BryanUpd),
 
     ?LOG_INFO("Bryan1=~p", [Bryan1]),
     ?assertEqual(<<"hughesb@gmail.com">>, Bryan1#'test_schema.User'.email),

@@ -51,7 +51,7 @@ build_queries([{Key, T = #table{schema = S, name = N, query_dict = QD0, columns 
                UpsertSql ->
                    {ok, UpQ, UpP, UpIP, UpR, UpM} = proto_crudl_parse:parse_query(RecordName, UpsertSql, ColDict),
                    orddict:store("upsert", #query{name      = "UPSERT",
-                                                  fun_name  = "upsert", fun_args = integer_to_list(length(UpIP)),
+                                                  fun_name  = "upsert", fun_args = "1",
                                                   query     = UpQ,
                                                   in_params = UpIP, bind_params = UpP,
                                                   record    = UpR, map = UpM}, QD2)

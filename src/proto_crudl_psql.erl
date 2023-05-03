@@ -998,10 +998,10 @@ upsert_fun(undefined, #table{query_dict = QD}) ->
     case orddict:find("upsert", QD) of
         {ok, Query} ->
             Name = Query#query.name,
-            InParams = lists:join(", ", Query#query.in_params),
-            BindParams = lists:join(", ", Query#query.bind_params),
-            "upsert(" ++ InParams ++ ") ->\n" ++
-            "    Params = [" ++ BindParams ++ "],\n"
+            Map = Query#query.map,
+            Params = lists:join(", ", Query#query.bind_params),
+            "upsert(M = " ++ Map ++ ") when is_map(M) ->\n" ++
+            "    Params = [" ++ Params ++ "],\n"
             "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
             "        #{command := insert, num_rows := 0} ->\n"
             "            {error, failed_to_upsert};\n"
@@ -1010,7 +1010,7 @@ upsert_fun(undefined, #table{query_dict = QD}) ->
             "        {error, {pgsql_error, #{code := <<\"23505\">>}}} ->\n"
             "            {error, exists};\n"
             "        {error, Reason} ->\n"
-            "            logger:error(\"Failed to upsert. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
+            "            logger:error(\"Failed to insert. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
             "            {error, Reason}\n"
             "    end.\n\n";
         error ->
@@ -1020,13 +1020,13 @@ upsert_fun(RecordName, #table{query_dict = QD}) ->
     case orddict:find("upsert", QD) of
         {ok, Query} ->
             Name = Query#query.name,
-            InParams = lists:join(", ", Query#query.in_params),
-            BindParams = lists:join(", ", Query#query.bind_params),
-            "upsert(" ++ InParams ++ ") ->\n" ++
-            "    Params = [" ++ BindParams ++ "],\n"
+            Record = Query#query.record,
+            Params = lists:join(", ", Query#query.bind_params),
+            "upsert(R = " ++ Record ++ ") when is_record(R, " ++ RecordName ++ ") ->\n" ++
+            "    Params = [" ++ Params ++ "],\n"
             "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
             "        #{command := insert, num_rows := 0} ->\n"
-            "            {error, failed_to_insert};\n"
+            "            {error, failed_to_upsert};\n"
             "        #{command := insert, num_rows := 1, rows := [Row]} ->\n"
             "            {ok, Row};\n"
             "        {error, {pgsql_error, #{code := <<\"23505\">>}}} ->\n"
