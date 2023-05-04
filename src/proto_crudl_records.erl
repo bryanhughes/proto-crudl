@@ -139,10 +139,31 @@ from_proplist(RecordName, Table) ->
     "    #" ++ RecordName ++ "{" ++ build_from_proplist(Table) ++ "}.\n\n".
 
 build_from_proplist(#table{columns = ColDict}) ->
-    L = [Col ++ " = proplists:get_value(" ++ Col ++ ", PropList)" || Col <-
-        [proto_crudl_utils:to_string(C) || C <- orddict:fetch_keys(ColDict),
-         proto_crudl_code:is_excluded(ColDict, C) == false]],
+    Fun = fun({ColName, Column}, Acc) ->
+             C = proto_crudl_utils:to_string(ColName),
+             case Column#column.is_excluded of
+                 true ->
+                     Acc;
+                 _ ->
+                     ToFun = get_to_fun(proto_crudl_psql:sql_to_erlang_datatype(Column#column.data_type)),
+                     [C ++ " = " ++ ToFun ++"(proplists:get_value(" ++ C ++ ", PropList))" | Acc]
+             end
+          end,
+    L = lists:foldl(Fun, [], orddict:to_list(ColDict)),
     lists:flatten(lists:join(", ", L)).
+
+get_to_fun("string") ->
+    "proto_crudl_utils:to_string";
+get_to_fun("binary") ->
+    "proto_crudl_utils:to_binary";
+get_to_fun("integer") ->
+    "proto_crudl_utils:to_integer";
+get_to_fun("float") ->
+    "proto_crudl_utils:to_float";
+get_to_fun("boolean") ->
+    "proto_crudl_utils:to_boolean";
+get_to_fun(_) ->
+    "proto_crudl_utils:to_string".
 
 merge(RecordName) ->
     "%%%----------------------------------------------------------------------------\n"

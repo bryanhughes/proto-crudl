@@ -23,6 +23,7 @@ out
 *_db.erl
 *_pb.erl
 
+example/apps/example/src/proto_crudl_utils.erl
 example/apps/example/src/*_db.erl
 example/apps/example/src/*_pb.erl
 example/apps/example/include/*_pb.hrl

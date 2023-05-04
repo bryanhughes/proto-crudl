@@ -55,6 +55,9 @@ main(Args = [ConfigFile]) ->
                     % Generate the Erlang code
                     ok = proto_crudl_code:generate(ProviderConfig, OutputConfig, Database1),
 
+                    % Generate proto_crudl_utils.erl
+                    ok = proto_crudl_code:generate_utils(OutputConfig),
+
                     io:format("~n---------------- DONE -----------------~n"),
                     ok;
                 {error, Reason} ->

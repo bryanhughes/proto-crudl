@@ -10,3 +10,4 @@ rm -rf apps/example/proto/*
 rm apps/example/src/*_pb.erl &> /dev/null
 rm apps/example/src/*_db.erl &> /dev/null
 rm apps/example/include/*_pb.hrl &> /dev/null
+rm apps/example/src/proto_crudl_utils.erl &> /dev/null
