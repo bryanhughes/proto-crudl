@@ -32,6 +32,7 @@ generate_functions(postgres, FullPath, UsePackage, T = #table{schema = S, name =
     ok = file:write_file(FullPath, empty_record(RecordName, T), [append]),
     ok = file:write_file(FullPath, to_proplist(RecordName, T), [append]),
     ok = file:write_file(FullPath, from_proplist(RecordName, T), [append]),
+    ok = file:write_file(FullPath, merge(RecordName), [append]),
     Schema = proto_crudl_utils:to_string(T#table.schema),
     ok = file:write_file(FullPath, raw_row_decoder(T), [append]),
     ok = file:write_file(FullPath, custom_row_decoders(Schema, orddict:to_list(T#table.mappings), []), [append]),
@@ -142,6 +143,33 @@ build_from_proplist(#table{columns = ColDict}) ->
         [proto_crudl_utils:to_string(C) || C <- orddict:fetch_keys(ColDict),
          proto_crudl_code:is_excluded(ColDict, C) == false]],
     lists:flatten(lists:join(", ", L)).
+
+merge(RecordName) ->
+    "%%%----------------------------------------------------------------------------\n"
+    "%%% @spec merge(To, From) -> #" ++ RecordName ++ "{}\n"
+    "%%%     To = #" ++ RecordName ++ "{}\n"
+    "%%%     From = #" ++ RecordName ++ "{}\n"
+    "%%%\n"
+    "%%% @doc Merges two #" ++ RecordName ++ "{} instances. The first takes precedence.\n"
+    "%%% @end\n"
+    "%%%----------------------------------------------------------------------------\n"
+    "merge(To, To) ->\n"
+    "   To;\n"
+    "merge(To, From) when is_record(To, " ++ RecordName ++ "),\n"
+    "                     is_record(From, " ++ RecordName ++ ") ->\n"
+    "   list_to_tuple(lists:append([" ++ RecordName ++ "],\n"
+    "                 merge(tl(tuple_to_list(To)),\n"
+    "                       tl(tuple_to_list(From)),\n"
+    "                       tl(tuple_to_list(#" ++ RecordName ++ "{})),\n"
+    "                       []))).\n\n"
+    "merge([D|ATail], [D|BTail], [D|DTail], To) ->\n"
+    "   merge(ATail, BTail, DTail, [D|To]); % If default, take from D\n"
+    "merge([D|ATail], [B|BTail], [D|DTail], To) ->\n"
+    "   merge(ATail, BTail, DTail, [B|To]); % If only A default, take from B\n"
+    "merge([A|ATail], [_|BTail], [_|DTail], To) ->\n"
+    "   merge(ATail, BTail, DTail, [A|To]); % Otherwise take from A\n"
+    "merge([],        [],        [],        To) ->\n"
+    "   lists:reverse(To).\n\n".
 
 empty_record(RecordName, Table) ->
     "new() ->\n"

@@ -698,4 +698,34 @@ upsert_xform_cols_test() ->
 
     ok.
 
+merge_test() ->
+    ?LOG_INFO("====================== merge_test() START ======================"),
+    ?LOG_INFO("Deleting from test_schema.user"),
+
+    Query = "DELETE FROM test_schema.user",
+    case pgo:query(Query, []) of
+        #{command := delete} ->
+            ok;
+        {error, Reason} ->
+            erlang:error(Reason)
+    end,
+
+    % Do a good create
+    {ok, Bryan0} = test_schema_user_db:create(<<"Bryan">>, <<"Hughes">>, <<"hughesb@gmail.com">>, undefined,
+                                              [1, 2, 3], 'BIG_SHOT', 100, {{2021, 2, 23}, {10, 23, 23.5}},
+                                              {2021, 2, 23},
+                                              'living', undefined, undefined),
+
+    Bryan1 = #'test_schema.User'{first_name = <<"Bryan">>,
+                                 last_name = <<"Hughes-x">>,
+                                 email = <<"hughesb@gmail.com">>,
+                                 user_type  = 'BUSY_GUY'},
+
+    Bryan2 = test_schema_user_db:merge(Bryan1, Bryan0),
+    ?LOG_INFO("Bryan0 = ~p", [Bryan0]),
+    ?LOG_INFO("Bryan1 = ~p", [Bryan1]),
+    ?LOG_INFO("Bryan2 (merged) = ~p", [Bryan2]),
+
+    ok.
+
 -endif.
