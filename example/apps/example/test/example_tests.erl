@@ -49,9 +49,10 @@ crudl_proto_maps_test() ->
     end,
 
     % Do a good create
-    {ok, Bryan} = test_schema_user_db:create(<<"Bryan">>, <<"Hughes">>, <<"hughesb@gmail.com">>, undefined,
-                                             [1, 2, 3], 'BIG_SHOT', 100, undefined, {{2021, 2, 23}, {10, 23, 23.5}},
-                                             undefined, undefined, undefined),
+    Bryan0 = test_schema_user_db:new(<<"Bryan">>, <<"Hughes">>, <<"hughesb@gmail.com">>, undefined, true, undefined,
+                                     [1, 2, 3], 'BIG_SHOT', 100, {{2021, 2, 23}, {10, 23, 23.5}}, {{2021, 2, 23}, {10, 23, 23.5}},
+                                     undefined, undefined, undefined, 0, 0),
+    {ok, Bryan} = test_schema_user_db:create(Bryan0),
     ?LOG_INFO("Bryan=~p", [Bryan]),
     ?assertEqual(<<"hughesb@gmail.com">>, maps:get(email, Bryan)),
     ?assertEqual(<<"Bryan">>, maps:get(first_name, Bryan)),
@@ -68,8 +69,10 @@ crudl_proto_maps_test() ->
     BryanId = maps:get(user_id, Bryan),
     ?assert(BryanId > 0),
 
-    {ok, Tom} = test_schema_user_db:create(<<"Tom">>, undefined, <<"tombagby@gmail.com">>, undefined, [100, 200, 300],
-                                           '_123FUN', 100, undefined, {{2021, 2, 23}, {0, 0, 0}}, undefined, ?LON_0, ?LAT_0),
+    Tom0 = test_schema_user_db:new(<<"Tom">>, undefined, <<"tombagby@gmail.com">>, undefined, true, BryanId, [100, 200, 300],
+                                   '_123FUN', 100, {{2021, 2, 23}, {0, 0, 0}}, {{2021, 2, 23}, {0, 0, 0}},
+                                   undefined, undefined, undefined, ?LON_0, ?LAT_0),
+    {ok, Tom} = test_schema_user_db:create(Tom0),
 
     ?LOG_INFO("Tom=~p", [Tom]),
     ?assertEqual(<<"tombagby@gmail.com">>, maps:get(email, Tom)),
@@ -207,16 +210,18 @@ custom_query_map_test() ->
             erlang:error(Reason)
     end,
 
-    {ok, Bryan} = test_schema_user_db:create(<<"Bryan">>, <<"Hughes">>, <<"hughesb@gmail.com">>, undefined,
-                                             [1, 2, 3], 'BIG_SHOT', 100, undefined, {{2021, 2, 23}, {10, 23, 23.5}},
-                                             undefined, ?LON_0, ?LAT_0),
+    Bryan0 = test_schema_user_db:new(<<"Bryan">>, <<"Hughes">>, <<"hughesb@gmail.com">>, undefined, true, undefined,
+                                     [1, 2, 3], 'BIG_SHOT', 100, {{2021, 2, 23}, {10, 23, 23.5}}, {{2021, 2, 23}, {10, 23, 23.5}},
+                                     undefined, undefined, undefined, ?LAT_0, ?LON_0),
+    {ok, Bryan} = test_schema_user_db:create(Bryan0),
     ?LOG_INFO("Bryan=~p", [Bryan]),
     ?assertEqual(?LAT_0, maps:get(lat, Bryan)),
     ?assertEqual(?LON_0, maps:get(lon, Bryan)),
 
-    {ok, Tom} = test_schema_user_db:create(<<"Tom">>, undefined, <<"tombagby@gmail.com">>, undefined, [100, 200, 300],
-                                           '_123FUN', 100, undefined, {{2021, 2, 23}, {0, 0, 0}}, undefined,
-                                           ?LON_1, ?LAT_1),
+    Tom0 = test_schema_user_db:new(<<"Tom">>, undefined, <<"tombagby@gmail.com">>, undefined, true, undefined,
+                                   [100, 200, 300], '_123FUN', 100, {{2021, 2, 23}, {0, 0, 0}}, {{2021, 2, 23}, {0, 0, 0}},
+                                   undefined, undefined, undefined, ?LON_0, ?LAT_0),
+    {ok, Tom} = test_schema_user_db:create(Tom0),
 
     ?LOG_INFO("Tom=~p", [Tom]),
     ?assertEqual(?LAT_1, maps:get(lat, Tom)),
@@ -250,9 +255,10 @@ crudl_proto_records_test() ->
     end,
 
     % Do a good create
-    {ok, Bryan} = test_schema_user_db:create(<<"Bryan">>, <<"Hughes">>, <<"hughesb@gmail.com">>, undefined,
-                                             [1, 2, 3], 'BIG_SHOT', 100, {{2021, 2, 23}, {10, 23, 23.5}}, {2021, 2, 23},
-                                             'living', undefined, undefined),
+    Bryan0 = test_schema_user_db:new(<<"Bryan">>, <<"Hughes">>, <<"hughesb@gmail.com">>, undefined, true, undefined,
+                                     [1, 2, 3], 'BIG_SHOT', 100, {{2021, 2, 23}, {10, 23, 23.5}}, {{2021, 2, 23}, {10, 23, 23.5}},
+                                     {2021, 2, 23}, 'living', true, 0, 0),
+    {ok, Bryan} = test_schema_user_db:create(Bryan0),
     ?LOG_INFO("Bryan=~p", [Bryan]),
     ?assertEqual(<<"hughesb@gmail.com">>, Bryan#'test_schema.User'.email),
     ?assertEqual(<<"Bryan">>, Bryan#'test_schema.User'.first_name),
@@ -280,9 +286,10 @@ crudl_proto_records_test() ->
     BryanId = Bryan#'test_schema.User'.user_id,
     ?assert(BryanId > 0),
 
-    {ok, Tom} = test_schema_user_db:create(<<"Tom">>, undefined, <<"tombagby@gmail.com">>, undefined, [100, 200, 300],
-                                           '_123FUN', 100, undefined, {2021, 2, 23}, 'living', ?LON_0, ?LAT_0),
-
+    Tom0 = test_schema_user_db:new(<<"Tom">>, undefined, <<"tombagby@gmail.com">>, undefined, true, BryanId,
+                                   [100, 200, 300], '_123FUN', 100, {{2021, 2, 23}, {0, 0, 0}}, {{2021, 2, 23}, {0, 0, 0}},
+                                   {2021, 2, 23}, 'living', true, ?LON_0, ?LAT_0),
+    {ok, Tom} = test_schema_user_db:create_default(Tom0),
     ?LOG_INFO("Tom=~p", [Tom]),
     ?assertEqual(<<"tombagby@gmail.com">>, Tom#'test_schema.User'.email),
     ?assertEqual(<<"Tom">>, Tom#'test_schema.User'.first_name),
@@ -425,10 +432,10 @@ crudl_proto_records_test() ->
     ?assertEqual({{2021, 2, 23}, {10, 23, 23.5}}, FromProto#'test_schema.User'.updated_on),
     ?assertEqual({2021, 2, 23}, FromProto#'test_schema.User'.due_date),
 
-    {ok, 1, []} = test_schema_user_db:delete_user_by_email(<<"foo@gmail.com">>),
-    notfound = test_schema_user_db:read(BryanId),
-
     ok = test_schema_user_db:delete(TomId),
+    {ok, 1, []} = test_schema_user_db:delete_user_by_email(<<"foo@gmail.com">>),
+    
+    notfound = test_schema_user_db:read(BryanId),
     notfound = test_schema_user_db:read(TomId).
 
 custom_query_record_test() ->
@@ -442,15 +449,19 @@ custom_query_record_test() ->
         {error, Reason} ->
             erlang:error(Reason)
     end,
-    {ok, Bryan} = test_schema_user_db:create(<<"Bryan">>, <<"Hughes">>, <<"hughesb@gmail.com">>, undefined,
-                                             [1, 2, 3], 'BIG_SHOT', 100, {{2021, 2, 23}, {10, 23, 23.5}}, {2021, 2, 23},
-                                             'living', ?LON_0, ?LAT_0),
+    Bryan0 = test_schema_user_db:new(<<"Bryan">>, <<"Hughes">>, <<"hughesb@gmail.com">>, undefined, true, undefined,
+                                     [1, 2, 3], 'BIG_SHOT', 100, {{2021, 2, 23}, {10, 23, 23.5}}, {{2021, 2, 23}, {10, 23, 23.5}},
+                                     {2021, 2, 23}, 'living', true, ?LON_0, ?LAT_0),
+    {ok, Bryan} = test_schema_user_db:create(Bryan0),
+
     ?LOG_INFO("Bryan=~p", [Bryan]),
     ?assertEqual(?LAT_0, Bryan#'test_schema.User'.lat),
     ?assertEqual(?LON_0, Bryan#'test_schema.User'.lon),
 
-    {ok, Tom} = test_schema_user_db:create(<<"Tom">>, undefined, <<"tombagby@gmail.com">>, undefined, [100, 200, 300],
-                                           '_123FUN', 100, undefined, undefined, undefined, ?LON_1, ?LAT_1),
+    Tom0 = test_schema_user_db:new(<<"Tom">>, undefined, <<"tombagby@gmail.com">>, undefined, true, undefined,
+                                   [100, 200, 300], '_123FUN', 100, {{2021, 2, 23}, {0, 0, 0}}, {{2021, 2, 23}, {0, 0, 0}},
+                                   undefined, undefined, undefined, ?LON_1, ?LAT_1),
+    {ok, Tom} = test_schema_user_db:create(Tom0),
 
     ?LOG_INFO("Tom=~p", [Tom]),
     ?assertEqual(?LAT_1, Tom#'test_schema.User'.lat),
@@ -475,15 +486,20 @@ update_fkey_record_test() ->
         {error, Reason} ->
             erlang:error(Reason)
     end,
-    {ok, Bryan} = test_schema_user_db:create(<<"Bryan">>, <<"Hughes">>, <<"hughesb@gmail.com">>, undefined,
-                                             [1, 2, 3], 'BIG_SHOT', 100, {{2021, 2, 23}, {10, 23, 23.5}}, {2021, 2, 23},
-                                             'living', ?LON_0, ?LAT_0),
+    Bryan0 = test_schema_user_db:new(<<"Bryan">>, <<"Hughes">>, <<"hughesb@gmail.com">>, undefined, true, undefined,
+                                     [1, 2, 3], 'BIG_SHOT', 100, {{2021, 2, 23}, {10, 23, 23.5}}, {{2021, 2, 23}, {10, 23, 23.5}},
+                                     {2021, 2, 23}, 'living', true, ?LON_0, ?LAT_0),
+    {ok, Bryan} = test_schema_user_db:create(Bryan0),
+
     ?LOG_INFO("Bryan=~p", [Bryan]),
     ?assertEqual(?LAT_0, Bryan#'test_schema.User'.lat),
     ?assertEqual(?LON_0, Bryan#'test_schema.User'.lon),
 
-    {ok, Tom} = test_schema_user_db:create(<<"Tom">>, undefined, <<"tombagby@gmail.com">>, undefined, undefined,
-                                           '_123FUN', 100, undefined, undefined, undefined, ?LON_1, ?LAT_1),
+    Tom0 = test_schema_user_db:new(<<"Tom">>, undefined, <<"tombagby@gmail.com">>, undefined, true, undefined,
+                                   undefined, '_123FUN', 100, {{2021, 2, 23}, {0, 0, 0}}, {{2021, 2, 23}, {0, 0, 0}},
+                                   undefined, undefined, undefined, ?LON_1, ?LAT_1),
+    {ok, Tom} = test_schema_user_db:create(Tom0),
+
     % The generated code will make sure the undefined and null are empty lists
     ?assertEqual([], Tom#'test_schema.User'.my_array),
 
@@ -525,7 +541,8 @@ create_upsert_record_test() ->
     Country = <<"US">>,
     Notes = <<"This was created">>,
 
-    {ok, CreateAddr} = test_schema_address_db:create(Address1, Address2, City, State, Country, Zip, Notes),
+    Address = test_schema_address_db:new(Address1, Address2, City, State, Country, Zip, Notes),
+    {ok, CreateAddr} = test_schema_address_db:create(Address),
 
     ?assertEqual(Address1, CreateAddr#'test_schema.Address'.address1),
     ?assertEqual(Address2, CreateAddr#'test_schema.Address'.address2),
@@ -668,9 +685,10 @@ upsert_xform_cols_test() ->
     end,
 
     % Do a good create
-    {ok, Bryan} = test_schema_user_db:create(<<"Bryan">>, <<"Hughes">>, <<"hughesb@gmail.com">>, undefined,
-                                             [1, 2, 3], 'BIG_SHOT', 100, {{2021, 2, 23}, {10, 23, 23.5}}, {2021, 2, 23},
-                                             'living', undefined, undefined),
+    Bryan0 = test_schema_user_db:new(<<"Bryan">>, <<"Hughes">>, <<"hughesb@gmail.com">>, undefined, true, undefined,
+                                     [1, 2, 3], 'BIG_SHOT', 100, {{2021, 2, 23}, {10, 23, 23.5}}, {{2021, 2, 23}, {10, 23, 23.5}},
+                                     {2021, 2, 23}, 'living', true, 0, 0),
+    {ok, Bryan} = test_schema_user_db:create(Bryan0),
     ?LOG_INFO("Bryan=~p", [Bryan]),
     ?assertEqual(<<"hughesb@gmail.com">>, Bryan#'test_schema.User'.email),
     ?assertEqual(<<"Bryan">>, Bryan#'test_schema.User'.first_name),
@@ -711,10 +729,10 @@ merge_test() ->
     end,
 
     % Do a good create
-    {ok, Bryan0} = test_schema_user_db:create(<<"Bryan">>, <<"Hughes">>, <<"hughesb@gmail.com">>, undefined,
-                                              [1, 2, 3], 'BIG_SHOT', 100, {{2021, 2, 23}, {10, 23, 23.5}},
-                                              {2021, 2, 23},
-                                              'living', undefined, undefined),
+    Bryan00 = test_schema_user_db:new(<<"Bryan">>, <<"Hughes">>, <<"hughesb@gmail.com">>, undefined, true, undefined,
+                                     [1, 2, 3], 'BIG_SHOT', 100, {{2021, 2, 23}, {10, 23, 23.5}}, {{2021, 2, 23}, {10, 23, 23.5}},
+                                      {2021, 2, 23}, 'living', true, 0, 0),
+    {ok, Bryan0} = test_schema_user_db:create(Bryan00),
 
     Bryan1 = #'test_schema.User'{first_name = <<"Bryan">>,
                                  last_name = <<"Hughes-x">>,

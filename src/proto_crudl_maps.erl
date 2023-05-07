@@ -18,7 +18,7 @@
 generate_functions(postgres, FullPath, Table) ->
     ok = file:write_file(FullPath, to_from_proto(), [append]),
     ok = file:write_file(FullPath, ts_support(orddict:to_list(Table#table.columns)), [append]),
-    ok = file:write_file(FullPath, empty_map(Table), [append]),
+    ok = file:write_file(FullPath, new_fun(Table), [append]),
     ok = file:write_file(FullPath, row_decoder(Table), [append]),
     case Table#table.pkey_list of
         [] ->
@@ -124,7 +124,7 @@ to_from_proto() ->
     "to_proto(Value) ->\n"
     "    Value.\n\n".
 
-empty_map(Table) ->
+new_fun(Table) ->
     "new() ->\n"
     "    " ++ build_empty_map(false, Table) ++ ".\n\n"
     "new_default() ->\n"

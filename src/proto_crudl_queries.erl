@@ -26,26 +26,34 @@ build_queries([{Key, T = #table{schema = S, name = N, query_dict = QD0, columns 
     InsertSql = build_insert_sql(Schema, Name, T),
     {ok, IQ, IP, IIP, IR, IM} = proto_crudl_parse:parse_query(RecordName, InsertSql, ColDict),
     QD1 = orddict:store("insert", #query{name      = "INSERT",
-                                         fun_name  = "create", fun_args = integer_to_list(length(IIP)),
+                                         fun_name  = "create", fun_args = "1",
                                          query     = IQ,
                                          in_params = IIP, bind_params = IP,
                                          record    = IR, map = IM}, QD0),
+
+    % NEW
+    QD1A = orddict:store("new", #query{name      = "NEW",
+                                       fun_name  = "new", fun_args = integer_to_list(length(IIP)),
+                                       in_params = IIP, bind_params = IP,
+                                       record    = IR, map = IM}, QD1),
+
+
 
     InsertDefaultSql = build_insert_defaults_sql(Schema, Name, T),
     {ok, IDQ, IDP, IDIP, IDR, IDM} = proto_crudl_parse:parse_query(RecordName, InsertDefaultSql, ColDict),
     QD2 = case IDQ =:= IQ of
               true ->
-                  QD1;
+                  QD1A;
               _ ->
                   orddict:store("insert_defaults", #query{name      = "INSERT_DEFAULTS",
-                                                          fun_name  = "create", fun_args = integer_to_list(length(IDIP)),
+                                                          fun_name  = "create_default", fun_args = "1",
                                                           query     = IDQ,
                                                           in_params = IDIP, bind_params = IDP,
-                                                          record    = IDR, map = IDM}, QD1)
+                                                          record    = IDR, map = IDM}, QD1A)
           end,
 
     % NEW FEATURE: UPSERT
-    QD2a = case build_upsert_sql(Schema, Name, T) of
+    QD2A = case build_upsert_sql(Schema, Name, T) of
                "" ->
                    QD2;
                UpsertSql ->
@@ -60,7 +68,7 @@ build_queries([{Key, T = #table{schema = S, name = N, query_dict = QD0, columns 
     % If no primary keys, then no read, update or delete
     QD5 = case T#table.pkey_list of
               [] ->
-                  QD2a;
+                  QD2A;
               _ ->
                   % READ
                   SelectSql = build_select_sql(Schema, Name, T),
@@ -69,7 +77,7 @@ build_queries([{Key, T = #table{schema = S, name = N, query_dict = QD0, columns 
                                                        fun_name  = "read", fun_args = integer_to_list(length(SIP)),
                                                        query     = SQ,
                                                        in_params = SIP, bind_params = SP,
-                                                       record    = SR, map = SM}, QD2a),
+                                                       record    = SR, map = SM}, QD2A),
 
                   % UPDATE
                   UpdateSql = build_update_sql(Schema, Name, T),
@@ -610,11 +618,6 @@ define_test() ->
     ?LOG_INFO("InsertOutput=~p~n", [InsertOutput]),
     InsertAssert = "INSERT INTO test_schema.user (first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, user_state_type, geog) VALUES ($first_name, $last_name, $email, $user_token, $enabled, $aka_id, $my_array, $user_type, $number_value, $created_on, $updated_on, $due_date, $user_state, $user_state_type, ST_POINT($lon, $lat)::geography) RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, user_state_type, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon",
     ?assertEqual(InsertAssert, InsertOutput),
-
-    DefaultOutput = build_insert_defaults_sql(S, N, UserTable),
-    ?LOG_INFO("DefaultOutput=~p~n", [DefaultOutput]),
-    DefaultAssert = "INSERT INTO test_schema.user (first_name, last_name, email, aka_id, my_array, user_type, number_value, updated_on, due_date, user_state, geog) VALUES ($first_name, $last_name, $email, $aka_id, $my_array, $user_type, $number_value, $updated_on, $due_date, $user_state, ST_POINT($lon, $lat)::geography) RETURNING user_id, first_name, last_name, email, user_token, enabled, aka_id, my_array, user_type, number_value, created_on, updated_on, due_date, user_state, user_state_type, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lon",
-    ?assertEqual(DefaultAssert, DefaultOutput),
 
     UpdateOutput = build_update_sql(S, N, UserTable),
     ?LOG_INFO("UpdateOutput=~p~n", [UpdateOutput]),

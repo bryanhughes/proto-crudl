@@ -23,13 +23,11 @@ generate_functions(postgres, FullPath, UsePackage, T = #table{schema = S, name =
                          "'" ++ proto_crudl_utils:camel_case(N) ++ "'"
                  end,
     ok = file:write_file(FullPath, array_support(orddict:to_list(T#table.columns)), [append]),
-
     ok = file:write_file(FullPath, ts_support(proto_crudl_code:has_timestamps(T)), [append]),
-
     ok = file:write_file(FullPath, date_support(orddict:to_list(T#table.columns)), [append]),
     ok = file:write_file(FullPath, to_proto(T), [append]),
     ok = file:write_file(FullPath, from_proto(T), [append]),
-    ok = file:write_file(FullPath, empty_record(RecordName, T), [append]),
+    ok = file:write_file(FullPath, new_fun(RecordName, T), [append]),
     ok = file:write_file(FullPath, to_proplist(RecordName, T), [append]),
     ok = file:write_file(FullPath, from_proplist(RecordName, T), [append]),
     ok = file:write_file(FullPath, merge(RecordName), [append]),
@@ -192,10 +190,6 @@ merge(RecordName) ->
     "merge([],        [],        [],        To) ->\n"
     "   lists:reverse(To).\n\n".
 
-empty_record(RecordName, Table) ->
-    "new() ->\n"
-    "    " ++ build_empty_record(false, RecordName, Table) ++ ".\n\n".
-
 raw_row_decoder(#table{columns = ColDict, schema = S, name = N}) ->
     Columns = orddict:to_list(ColDict),
     RecordName = proto_crudl_utils:to_string(S) ++ ".Raw" ++ proto_crudl_utils:camel_case(N),
@@ -296,21 +290,14 @@ decode_columns([{_Key, #column{name = N, udt_name = <<"date">>}} | Rest], Acc) -
 decode_columns([_Head | Rest], Acc) ->
     decode_columns(Rest, Acc).
 
-build_empty_record(true, RecordName, #table{select_list = SelectList, default_list = DefaultList, columns = ColDict}) ->
-    Fun = fun(C, Acc) ->
-                case {lists:member(C, DefaultList), proto_crudl_code:is_version(ColDict, C)} of
-                    {true, false} ->
-                        [proto_crudl_utils:to_string(C) ++ " = default" | Acc];
-                    {false, false} ->
-                        [proto_crudl_utils:to_string(C) ++ " = undefined" | Acc];
-                    _ ->
-                        Acc
-                end
-          end,
-    lists:flatten("#" ++ RecordName ++ "{" ++ lists:join(", ", lists:reverse(lists:foldl(Fun, [], SelectList))) ++ "}");
-build_empty_record(_, RecordName, #table{select_list = SelectList, columns = ColDict}) ->
+new_fun(RecordName, Table = #table{query_dict = QD}) ->
+    Q = orddict:fetch("new", QD),
+    InParams = lists:join(", ", Q#query.in_params),
+    "new(" ++ InParams ++ ") ->\n"
+    "    " ++ build_empty_record(RecordName, Table) ++ ".\n\n".
+build_empty_record(RecordName, #table{insert_list = ColumnList, columns = ColDict}) ->
     lists:flatten("#" ++ RecordName ++ "{" ++
-                  lists:join(", ", [proto_crudl_utils:to_string(C) ++ " = undefined" || C <- SelectList,
+                  lists:join(", ", [proto_crudl_utils:to_string(C) ++ " = " ++ proto_crudl_utils:camel_case(C) || C <- ColumnList,
                                     proto_crudl_code:is_version(ColDict, C) == false]) ++ "}").
 
 

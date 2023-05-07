@@ -88,7 +88,6 @@ generate_sources(Provider, SourcePath, Suffix, UseRecords, UsePackage, UseGpb, D
 
     % Generate enum helpers
     generate_enum_helpers(FullPath, orddict:to_list(Table#table.columns)),
-
     generate_sources(Provider, SourcePath, Suffix, UseRecords, UsePackage, UseGpb, Database, Rest).
 
 
@@ -134,7 +133,9 @@ write_record_fields(FullPath, Cnt, StrLen, [ColumnName | Rest], ColDict, Acc) ->
 
 
 generate_defines(FullPath, #table{query_dict = QD}) ->
-    Fun = fun(_Key, #query{name = N, query = Q}, _Acc) ->
+    Fun = fun(_Key, #query{query = undefined}, _Acc) ->
+                ok;
+             (_Key, #query{name = N, query = Q}, _Acc) ->
                 ok = file:write_file(FullPath, "-define(" ++ N ++ ", \"" ++ Q ++ "\").\n", [append])
           end,
     orddict:fold(Fun, [], QD).
@@ -174,19 +175,19 @@ generate_exports(RecordsOrMaps, FullPath, Table = #table{query_dict = QD}) ->
     case RecordsOrMaps of
         use_maps ->
             ok = file:write_file(FullPath, "-export([from_proto/1,\n"
-                                           "         to_proto/1,\n"
-                                           "         new/0,\n", [append]);
+                                           "         to_proto/1,\n", [append]);
         _ ->
             ok = file:write_file(FullPath, "-export([from_proto/1,\n"
                                            "         to_proto/1,\n"
                                            "         to_proplist/1,\n"
                                            "         from_proplist/1,\n"
-                                           "         merge/2,\n"
-                                           "         new/0,\n", [append])
+                                           "         merge/2,\n", [append])
     end,
 
     Queries = orddict:to_list(QD),
-    Fun0 = fun({_Key, #query{fun_name = FN, fun_args = FA}}, Acc) ->
+    Fun0 = fun({_Key, #query{fun_args = undefined}}, Acc) ->
+                Acc;
+              ({_Key, #query{fun_name = FN, fun_args = FA}}, Acc) ->
                 ["         " ++ FN ++ "/" ++ FA | Acc]
            end,
     [ok = file:write_file(FullPath, Line, [append]) || Line <- lists:join(",\n", lists:foldl(Fun0, [], Queries))],

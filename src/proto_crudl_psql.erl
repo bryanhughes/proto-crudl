@@ -912,9 +912,9 @@ default_value(Unknown) ->
 create_fun(undefined, Table = #table{query_dict = QD}) ->
     Query = orddict:fetch("insert", QD),
     Name = Query#query.name,
-    InParams = lists:join(", ", Query#query.in_params),
     BindParams = lists:join(", ", Query#query.bind_params),
-    "create(" ++ InParams ++ ") ->\n" ++
+    create_defaults_map_fun(Table) ++
+    "create(M = " ++ Query#query.map ++ ") when is_map(M) ->\n" ++
     "    Params = [" ++ BindParams ++ "],\n"
     "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := insert, num_rows := 0} ->\n"
@@ -926,14 +926,13 @@ create_fun(undefined, Table = #table{query_dict = QD}) ->
     "        {error, Reason} ->\n"
     "            logger:error(\"Failed to insert. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
     "            {error, Reason}\n"
-    "    end.\n\n" ++
-    create_defaults_map_fun(Table);
-create_fun(RecordName, Table = #table{default_list = DL, query_dict = QD}) ->
+    "    end.\n\n";
+create_fun(RecordName, Table = #table{query_dict = QD}) ->
     Query = orddict:fetch("insert", QD),
     Name = Query#query.name,
-    InParams = lists:join(", ", Query#query.in_params),
     BindParams = lists:join(", ", Query#query.bind_params),
-    "create(" ++ InParams ++ ") ->\n" ++
+    create_defaults_record_fun(Table, RecordName) ++
+    "create(R = " ++ Query#query.record ++ ") when is_record(R, " ++ RecordName ++ ") ->\n" ++
     "    Params = [" ++ BindParams ++ "],\n"
     "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := insert, num_rows := 0} ->\n"
@@ -945,20 +944,15 @@ create_fun(RecordName, Table = #table{default_list = DL, query_dict = QD}) ->
     "        {error, Reason} ->\n"
     "            logger:error(\"Failed to insert. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
     "            {error, Reason}\n"
-    "    end.\n\n" ++
-    case length(DL) > 0 of
-        true -> create_defaults_record_fun(Table, RecordName);
-        _ -> ""
-    end.
+    "    end.\n\n".
 
 create_defaults_map_fun(#table{default_list = DL}) when length(DL) == 0 ->
     "";
 create_defaults_map_fun(#table{query_dict = QD}) ->
     Query = orddict:fetch("insert_defaults", QD),
     Name = Query#query.name,
-    InParams = lists:join(", ", Query#query.in_params),
     BindParams = lists:join(", ", Query#query.bind_params),
-    "create(" ++ InParams ++ ") ->\n" ++
+    "create_default(M = " ++ Query#query.map ++ ") when is_map(M) ->\n" ++
     "    Params = [" ++ BindParams ++ "],\n"
     "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := insert, num_rows := 0} ->\n"
@@ -970,16 +964,17 @@ create_defaults_map_fun(#table{query_dict = QD}) ->
     "        {error, Reason} ->\n"
     "            logger:error(\"Failed to insert with defaults. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
     "            {error, Reason}\n"
-    "    end.\n\n".
+    "    end;\n"
+    "create_default(_M) ->\n"
+    "   {error, invalid_map}.\n\n".
 
 create_defaults_record_fun(#table{default_list = DL}, _RecordName) when length(DL) == 0 ->
     "";
 create_defaults_record_fun(#table{query_dict = QD}, RecordName) ->
     Query = orddict:fetch("insert_defaults", QD),
     Name = Query#query.name,
-    Params = lists:join(", ", Query#query.in_params),
     BindParams = lists:join(", ", Query#query.bind_params),
-    "create(" ++ Params ++ ") ->\n" ++
+    "create_default(R = " ++ Query#query.record ++ ") when is_record(R, " ++ RecordName ++ ") ->\n" ++
     "    Params = [" ++ BindParams ++ "],\n"
     "    case pgo:query(?" ++ Name ++ ", Params, #{decode_opts => [{decode_fun_params, [" ++ RecordName ++ "]}, {return_rows_as_maps, true}, {column_name_as_atom, true}, {decode_fun, fun decode_row/3}]}) of\n"
     "        #{command := insert, num_rows := 0} ->\n"
@@ -991,7 +986,9 @@ create_defaults_record_fun(#table{query_dict = QD}, RecordName) ->
     "        {error, Reason} ->\n"
     "            logger:error(\"Failed to insert with defaults. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
     "            {error, Reason}\n"
-    "    end.\n\n".
+    "    end;\n"
+    "create_default(_R) ->\n"
+    "   {error, invalid_record}.\n\n".
 
 -spec upsert_fun(string() | undefined, #table{}) -> string().
 upsert_fun(undefined, #table{query_dict = QD}) ->
@@ -1012,7 +1009,9 @@ upsert_fun(undefined, #table{query_dict = QD}) ->
             "        {error, Reason} ->\n"
             "            logger:error(\"Failed to insert. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
             "            {error, Reason}\n"
-            "    end.\n\n";
+            "    end;\n"
+            "upsert(_M) ->\n"
+            "   {error, invalid_map}.\n\n";
         error ->
             ""
     end;
@@ -1034,7 +1033,9 @@ upsert_fun(RecordName, #table{query_dict = QD}) ->
             "        {error, Reason} ->\n"
             "            logger:error(\"Failed to insert. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
             "            {error, Reason}\n"
-            "    end.\n\n";
+            "    end;\n\n"
+            "upsert(_R) ->\n"
+            "   {error, invalid_record}.\n\n";
         error ->
             ""
     end.
@@ -1089,7 +1090,9 @@ update_fun(undefined, #table{query_dict = QD}) ->
     "        {error, Reason} ->\n"
     "            logger:error(\"Failed to update. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
     "            {error, Reason}\n"
-    "    end.\n\n";
+    "    end;\n"
+    "update(_M) ->\n"
+    "    {error, invalid_map}.\n\n";
 update_fun(RecordName, #table{query_dict = QD}) ->
     Query = orddict:fetch("update", QD),
     Name = Query#query.name,
@@ -1106,7 +1109,7 @@ update_fun(RecordName, #table{query_dict = QD}) ->
     "            logger:error(\"Failed to update. Reason=~p, Query=~p, Params=~p\", [Reason, ?" ++ Name ++ ", Params]),\n"
     "            {error, Reason}\n"
     "    end;\n"
-    "update(_M) ->\n"
+    "update(_R) ->\n"
     "    {error, invalid_record}.\n\n".
 
 -spec update_fkeys_fun(string() | undefined, #foreign_relation{}, #table{}) -> string().
