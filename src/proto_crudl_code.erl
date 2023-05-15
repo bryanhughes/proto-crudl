@@ -334,6 +334,8 @@ generate_utils(OutputConfig) ->
          to_string/1]).
 
 -spec to_string(any()) -> string().
+to_string(undefined) -> undefined;
+
 to_string({_, _, _} = Timestamp) ->
     to_string(calendar:now_to_datetime(Timestamp));
 to_string({{Y, Mo, D}, {H, Mn, _S}}) ->
@@ -347,14 +349,15 @@ to_string(X) when is_binary(X) -> binary_to_list(X);
 to_string(X) -> X.
 
 -spec to_binary(any()) -> binary().
+to_binary(undefined) ->
+    undefined;
+
 to_binary({_, _, _} = Timestamp) ->
     to_binary(calendar:now_to_datetime(Timestamp));
 to_binary({{Y, Mo, D}, {H, Mn, _S}}) ->
     FmtStr = \"~4.10.0B-~2.10.0B-~2.10.0BT~2.10.0B:~2.10.0B\",
     to_binary(io_lib:format(FmtStr, [Y, Mo, D, H, Mn]));
 
-to_binary(undefined) ->
-    <<>>;
 to_binary([]) ->
     <<>>;
 to_binary(L) when is_list(L) ->
@@ -373,7 +376,7 @@ to_binary(B)->
 
 -spec to_list(any()) -> list().
 to_list(undefined) ->
-    [];
+    undefined;
 to_list(Term) when is_integer(Term) ->
     integer_to_list(Term);
 to_list(Term) when is_binary(Term) ->
@@ -388,7 +391,7 @@ to_list(Term) ->
 
 -spec to_integer(any()) -> integer().
 to_integer(undefined) ->
-    0;
+    undefined;
 to_integer(true) ->
     1;
 to_integer(false) ->
@@ -418,7 +421,7 @@ to_integer(_) ->
 
 -spec to_float(any()) -> float().
 to_float(undefined) ->
-    0.0;
+    undefined;
 to_float([]) ->
     0.0;
 to_float(Term) when is_float(Term) ->
@@ -434,6 +437,10 @@ to_float(_) ->
 
 -spec to_boolean(any()) -> atom().
 to_boolean(undefined) ->
+    undefined;
+to_boolean(<<>>) ->
+    false;
+to_boolean([]) ->
     false;
 to_boolean(Term) when is_atom(Term) ->
     Term;

@@ -206,7 +206,8 @@ apply_column_transforms(select, Table = #table{columns = ColDict, schema = S, na
             ColDict1 = orddict:store(CName1, Column#column{select_xform = Op}, ColDict),
             apply_column_transforms(select, Table#table{columns = ColDict1}, Rest);
         error ->
-            io:format("        INFO: Adding virtual column ~0p to ~0p.~0p from transform ~0p~n", [CName1, S, N, X]),
+            io:format("        INFO: Adding virtual column ~0p of type ~0.p to ~0p.~0p from transform ~0p~n",
+                      [CName1, Datatype, S, N, X]),
             VirtualColumn = #column{table_schema = S, table_name = N, name = CName1, ordinal_position = 99,
                                     data_type    = <<"virtual">>, udt_name = proto_crudl_utils:to_binary(Datatype),
                                     is_virtual   = true, is_nullable = true, default = null},

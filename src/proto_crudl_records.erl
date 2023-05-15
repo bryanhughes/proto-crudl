@@ -143,8 +143,8 @@ build_from_proplist(#table{columns = ColDict}) ->
                  true ->
                      Acc;
                  _ ->
-                     ToFun = get_to_fun(proto_crudl_psql:sql_to_erlang_datatype(Column#column.data_type)),
-                     [C ++ " = " ++ ToFun ++"(proplists:get_value(" ++ C ++ ", PropList))" | Acc]
+                     ToFun = get_to_fun(proto_crudl_psql:sql_to_erlang_datatype(Column#column.udt_name)),
+                     [C ++ " = " ++ ToFun ++"(proplists:get_value(<<\"" ++ C ++ "\">>, PropList))" | Acc]
              end
           end,
     L = lists:foldl(Fun, [], orddict:to_list(ColDict)),

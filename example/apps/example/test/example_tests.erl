@@ -434,7 +434,7 @@ crudl_proto_records_test() ->
 
     ok = test_schema_user_db:delete(TomId),
     {ok, 1, []} = test_schema_user_db:delete_user_by_email(<<"foo@gmail.com">>),
-    
+
     notfound = test_schema_user_db:read(BryanId),
     notfound = test_schema_user_db:read(TomId).
 
