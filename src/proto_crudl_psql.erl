@@ -349,8 +349,9 @@ process_indexes(Idx, S, T, [{IN, CN, IU, IP, IC} | Rest], IndexList) ->
         undefined ->
             process_indexes(NewIdx, S, T, Rest, IndexList);
         _ ->
-            io:format("    Index: ~p  ~0p (~p, is_list = ~p, is_lookup = ~p)~n",
-                      [Idx#index.name, Idx#index.columns, Idx#index.type, Idx#index.is_list, Idx#index.is_lookup]),
+            io:format("    Index: ~p  ~0p (~p, is_list = ~p, is_lookup = ~p, comment = ~p)~n",
+                      [Idx#index.name, Idx#index.columns, Idx#index.type, Idx#index.is_list,
+                       Idx#index.is_lookup, Idx#index.comment]),
             process_indexes(NewIdx, S, T, Rest, [Idx#index{columns = lists:reverse(Idx#index.columns)} | IndexList])
     end.
 

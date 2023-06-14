@@ -510,12 +510,15 @@ build_lookup_list_query(Table = #table{columns = ColDict}, [Index = #index{is_li
 build_lookup_list_query(Table, [_Index | Rest], QueryDict) ->
     build_lookup_list_query(Table, Rest, QueryDict).
 
-build_lookup_list_sql(Table, Index = #index{is_lookup = IsLookup}) ->
+build_lookup_list_sql(Table, Index = #index{is_lookup = IsLookup, comment = Comment}) ->
     Schema = proto_crudl_utils:to_string(Index#index.table_schema),
     Name = proto_crudl_utils:to_string(Index#index.table_name),
     ColDict = Table#table.columns,
     SelectList = Table#table.select_list,
     LookupColumns = Index#index.columns,
+
+    C = proto_crudl_utils:to_string(Comment),
+    OrderBy = case string:substr(C, 1, 9) of "+ORDER BY" -> string:substr(C, 2) ; _ -> "" end,
 
     LookupColumns1 = build_bind_params(LookupColumns, []),
 
@@ -527,7 +530,7 @@ build_lookup_list_sql(Table, Index = #index{is_lookup = IsLookup}) ->
 
     lists:flatten("SELECT " ++ lists:join(", ", lists:append(Clause1, Clause2)) ++
                   " FROM " ++ proto_crudl_utils:to_string(Schema) ++ "." ++ proto_crudl_utils:to_string(Name) ++
-                  " WHERE " ++ lists:join(" AND ", LookupColumns1) ++ LimitClause).
+                  " WHERE " ++ lists:join(" AND ", LookupColumns1) ++ " " ++ OrderBy ++ " " ++ LimitClause).
 
 
 %%
