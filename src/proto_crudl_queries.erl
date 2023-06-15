@@ -326,13 +326,26 @@ build_insert_defaults_sql(Schema, Name, #table{columns = ColDict,
 
 -spec build_select_with_limit_sql(Schema :: string(), Name :: string(), Table :: #table{}) -> SelectStmt :: string().
 %% @doc This function will return the SELECT WITH LIMIT statement based on the applied excluded columns and transformations
-build_select_with_limit_sql(Schema, Name, #table{columns = ColDict, select_list = SelectList}) ->
-    logger:info("Schema=~p, Table=~p", [Schema, Name]),
+build_select_with_limit_sql(Schema, Name, #table{columns = ColDict, select_list = SelectList, comment = Comment}) ->
+    logger:info("Schema=~p, Table=~p, Comment=~p", [Schema, Name, Comment]),
+    C0 = proto_crudl_utils:to_string(Comment),
+    OrderBy = case string:substr(C0, 1, 9) of
+                  "+ORDER BY" ->
+                      case string:str(C0, "\\n") of
+                          0 ->
+                              string:substr(C0, 2);
+                          Pos ->
+                              string:substr(C0, 2, Pos - 2)
+                      end;
+                  _ ->
+                      ""
+              end,
+
     % Now build our select clause using all the columns except those that are excluded
     Clause1 = build_select_clause(SelectList, ColDict, []),
     Clause2 = build_select_xforms(SelectList, ColDict, []),
     lists:flatten("SELECT " ++ lists:join(", ", lists:append(Clause1, Clause2)) ++
-                  " FROM " ++ Schema ++ "." ++ Name ++ " LIMIT $limit OFFSET $offset").
+                  " FROM " ++ Schema ++ "." ++ Name ++ " " ++ OrderBy ++ " " ++ "LIMIT $limit OFFSET $offset").
 
 
 -spec build_select_sql(Schema :: string(), Name :: string(), Table :: #table{}) -> SelectStmt :: string().

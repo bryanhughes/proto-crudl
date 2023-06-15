@@ -19,7 +19,8 @@
 
 -define(READ_TABLES, "SELECT
         t.table_schema,
-        t.table_name
+        t.table_name,
+        obj_description(cls.oid) AS comment
     FROM
         pg_namespace ns
         JOIN pg_class cls ON
@@ -200,12 +201,12 @@ read_schemas(C, Generator, [Schema | Rest], TablesDict) ->
 %% @doc For each table in the results, this function will read the columns, indexes, and check constraints
 process_tables(_C, [], TablesDict, _VersionColumn) ->
     {ok, TablesDict};
-process_tables(C, [{S, T} | Rest], TablesDict, VersionColumn) ->
-    io:format("Table: ~p.~p~n", [S, T]),
+process_tables(C, [{S, T, Comment} | Rest], TablesDict, VersionColumn) ->
+    io:format("Table: ~p.~p, Comment=~p~n", [S, T, Comment]),
     case read_table(C, proto_crudl_utils:to_binary(S), proto_crudl_utils:to_binary(T), VersionColumn) of
         {ok, Table} ->
             FQN = proto_crudl:make_fqn(Table),
-            process_tables(C, Rest, dict:store(FQN, Table, TablesDict), VersionColumn);
+            process_tables(C, Rest, dict:store(FQN, Table#table{comment = Comment}, TablesDict), VersionColumn);
         {error, Reason} ->
             io:format("    ERROR: Failed to read columns for table ~p.~p. Reason=~p~n", [S, T, Reason]),
             {error, Reason}

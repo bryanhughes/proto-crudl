@@ -279,7 +279,9 @@
 			</index>
 		</table>
 		<table name="user" >
-			<comment><![CDATA[This table will help test secondary lookup via email.
+			<comment><![CDATA[+ORDER BY last_name DESC
+
+This table will help test secondary lookup via email.
 
 #service: user]]></comment>
 			<column name="user_id" type="bigint" jt="-5" mandatory="y" >

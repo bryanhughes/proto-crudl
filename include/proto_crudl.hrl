@@ -98,6 +98,7 @@
 
 -record(table, {name :: binary() | undefined,
                 schema :: binary() | undefined,
+                comment :: binary() | <<>>,
                 columns = orddict:new() :: orddict:orddict(),   % Keyed by column_name
                 proto_fields = [] :: [#proto_map{}],            % List of proto_map records
                 proto_extension :: string() | undefined,        % Extensions option when generating protobuffers

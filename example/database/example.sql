@@ -1,3 +1,5 @@
+CREATE SCHEMA IF NOT EXISTS "public";
+
 CREATE SCHEMA IF NOT EXISTS test_schema;
 
 CREATE  TABLE "public".example_a ( 
@@ -267,7 +269,7 @@ COMMENT ON CONSTRAINT lookup_email ON test_schema."user" IS 'Any index that is p
 
 COMMENT ON INDEX test_schema.list_by_user_type_enabled IS '+ORDER BY enabled DESC';
 
-COMMENT ON TABLE test_schema."user" IS 'This table will help test secondary lookup via email.\n\n#service: user';
+COMMENT ON TABLE test_schema."user" IS '+ORDER BY last_name DESC\n\nThis table will help test secondary lookup via email.\n\n#service: user';
 
 COMMENT ON TABLE test_schema.user_product_part IS '#service: user';
 
