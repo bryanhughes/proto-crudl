@@ -318,9 +318,8 @@ read_indexes(C, T0 = #table{name = N, schema = S}) ->
                     {ok, T0#table{indexes = Indexes}}
             end;
         {error, Reason} ->
-            io:format                                                                 (
-                "    ERROR: Failed to get index for table ~p.~p. Reason=~p, Stmt=~p~n",
-                [S, N, Reason, ?READ_INDEXES]                                         ),
+            io:format("    ERROR: Failed to get index for table ~p.~p. Reason=~p, Stmt=~p~n",
+                      [S, N, Reason, ?READ_INDEXES]),
             {error, Reason}
     end.
 

@@ -279,7 +279,7 @@
 			</index>
 		</table>
 		<table name="user" >
-			<comment><![CDATA[This table will help test secondary lookup via email.
+			<comment><![CDATA[This is a comment
 
 #service: user]]></comment>
 			<column name="user_id" type="bigint" jt="-5" mandatory="y" >
@@ -371,7 +371,7 @@
 			</fk>
 		</table>
 	</schema>
-	<connector name="PostgreSQL" database="PostgreSQL" driver_class="org.postgresql.Driver" driver_jar="postgresql-42.5.3.jar" driver_desc="Standard" host="localhost" port="5432" instance="proto_crudl" user="proto_crudl" passwd="ZXJsX3Byb3RvZGI=" useSystemProxy="false" />
+	<connector name="PostgreSQL" database="PostgreSQL" driver_class="org.postgresql.Driver" driver_jar="postgresql-42.6.0.jar" driver_desc="Standard" host="localhost" port="5432" instance="proto_crudl" user="proto_crudl" passwd="ZXJsX3Byb3RvZGI=" useSystemProxy="false" />
 	<layout name="Default Layout" id="Layout_5f168fb" joined_routing="y" show_column_type="y" show_relation="columns" >
 		<entity schema="test_schema" name="address" color="C1D8EE" x="160" y="192" />
 		<entity schema="public" name="example_a" color="C1D8EE" x="464" y="688" />
@@ -938,8 +938,7 @@ COMMENT ON TABLE test_schema."user" IS 'This table will help test secondary look
 
 COMMENT ON TABLE test_schema.user_product_part IS '#service: user';
 
-COMMENT ON COLUMN test_schema.user_product_part.inserted_on IS 'The UNIX epoch';
-]]></string>
+COMMENT ON COLUMN test_schema.user_product_part.inserted_on IS 'The UNIX epoch';]]></string>
 		</script>
 	</layout>
 </project>

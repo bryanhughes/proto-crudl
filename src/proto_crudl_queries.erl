@@ -331,15 +331,14 @@ build_select_with_limit_sql(Schema, Name, #table{columns = ColDict, select_list 
     C0 = proto_crudl_utils:to_string(Comment),
     OrderBy = case string:substr(C0, 1, 9) of
                   "+ORDER BY" ->
-                      case string:str(C0, "\\n") of
-                          0 ->
-                              string:substr(C0, 2);
-                          Pos ->
-                              string:substr(C0, 2, Pos - 2)
+                      case string:split(string:substr(C0, 2), "\n") of
+                          [] -> "";
+                          [Head | _Rest] -> Head
                       end;
                   _ ->
                       ""
               end,
+    io:format("--------- Table=~p, C0=~p, OrderBy=~p\n", [Name, C0, OrderBy]),
 
     % Now build our select clause using all the columns except those that are excluded
     Clause1 = build_select_clause(SelectList, ColDict, []),
@@ -531,7 +530,15 @@ build_lookup_list_sql(Table, Index = #index{is_lookup = IsLookup, comment = Comm
     LookupColumns = Index#index.columns,
 
     C = proto_crudl_utils:to_string(Comment),
-    OrderBy = case string:substr(C, 1, 9) of "+ORDER BY" -> string:substr(C, 2) ; _ -> "" end,
+    OrderBy = case string:substr(C, 1, 9) of
+                  "+ORDER BY" ->
+                      case string:split(string:substr(C, 2), "\n") of
+                          [] -> "";
+                          [Head | _Rest] -> Head
+                      end;
+                  _ ->
+                      ""
+              end,
 
     LookupColumns1 = build_bind_params(LookupColumns, []),
 
