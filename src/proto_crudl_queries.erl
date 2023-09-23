@@ -338,7 +338,6 @@ build_select_with_limit_sql(Schema, Name, #table{columns = ColDict, select_list 
                   _ ->
                       ""
               end,
-    io:format("--------- Table=~p, C0=~p, OrderBy=~p\n", [Name, C0, OrderBy]),
 
     % Now build our select clause using all the columns except those that are excluded
     Clause1 = build_select_clause(SelectList, ColDict, []),
