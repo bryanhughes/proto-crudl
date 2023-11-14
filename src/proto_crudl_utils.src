@@ -114,6 +114,14 @@ to_boolean(1) ->
     true;
 to_boolean(0) ->
     false;
+to_boolean(\"on\") ->
+    true;
+to_boolean(\"off\") ->
+    false;
+to_boolean(<<\"on\">>) ->
+    true;
+to_boolean(<<\"off\">>) ->
+    false;
 to_boolean(\"true\") ->
     true;
 to_boolean(\"false\") ->
